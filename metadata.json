@@ -1,0 +1,6 @@
+{
+  "name": "Central line tube",
+  "description": "A 3D configurator and visualization of the 1992 Stock Central Line train using React and Three.js.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

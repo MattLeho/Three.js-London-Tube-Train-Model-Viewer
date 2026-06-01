@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>London Tube Trackside Assets - High Detail</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            font-family: monospace;
+            color: #ffffff;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            pointer-events: none;
+            z-index: 100;
+            border: 1px solid #333;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 20px;
+            font-size: 1.2em;
+            z-index: 1000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <strong>DEEP TUBE INFRASTRUCTURE (v2.0)</strong><br><br>
+        Controls: Drag to rotate | Scroll to zoom<br>
+        Lighting: Use top-right GUI panel<br>
+        Export: Use bottom GUI folders
+    </div>
+    <div id="loading">Processing geometry for export...</div>
+
+    <!-- Core Dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/OBJExporter.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+
+    <script>
+        // Initialization
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+        scene.fog = new THREE.Fog(0x111111, 15, 80);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(15, 12, 20);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
+        controls.maxPolarAngle = Math.PI / 2 + 0.1; // Prevent going too far below ground
+        controls.update();
+
+        // High-Visibility Defaults (Parametrised for GUI)
+        const lightParams = {
+            ambientIntensity: 0.8,
+            ambientColour: "#444455",
+            spotIntensity: 2.5,
+            spotColour: "#ffeedd",
+            spotX: 0,
+            spotY: 20,
+            spotZ: 10,
+            pointLightIntensity: 1.0,
+            toggleFog: true
+        };
+
+        const ambientLight = new THREE.AmbientLight(lightParams.ambientColour, lightParams.ambientIntensity);
+        scene.add(ambientLight);
+
+        const spotLight = new THREE.SpotLight(lightParams.spotColour, lightParams.spotIntensity, 150, Math.PI/3, 0.5, 1.5);
+        spotLight.position.set(lightParams.spotX, lightParams.spotY, lightParams.spotZ);
+        spotLight.castShadow = true;
+        spotLight.shadow.mapSize.width = 4096; // High detail shadows
+        spotLight.shadow.mapSize.height = 4096;
+        spotLight.shadow.bias = -0.0005;
+        scene.add(spotLight);
+
+        const fillLight = new THREE.DirectionalLight(0x223344, 0.5);
+        fillLight.position.set(-20, 10, -20);
+        scene.add(fillLight);
+
+        // Environment Base
+        const gridHelper = new THREE.GridHelper(50, 50, 0x333333, 0x1a1a1a);
+        gridHelper.position.y = -0.01;
+        scene.add(gridHelper);
+
+        const planeGeo = new THREE.PlaneGeometry(60, 60);
+        const planeMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 1.0, depthWrite: false });
+        const plane = new THREE.Mesh(planeGeo, planeMat);
+        plane.rotation.x = -Math.PI / 2;
+        plane.receiveShadow = true;
+        scene.add(plane);
+
+        // High-Fidelity Materials
+        const mats = {
+            greyMetal: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.7, roughness: 0.5 }),
+            darkMetal: new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.85, roughness: 0.4 }),
+            rustyMetal: new THREE.MeshStandardMaterial({ color: 0x3a2218, metalness: 0.4, roughness: 0.9 }),
+            galvanized: new THREE.MeshStandardMaterial({ color: 0x888888, metalness: 0.95, roughness: 0.3 }),
+            concrete: new THREE.MeshStandardMaterial({ color: 0x6a6a65, roughness: 1.0 }),
+            yellowWarning: new THREE.MeshStandardMaterial({ color: 0xd4a017, roughness: 0.6 }),
+            redSignal: new THREE.MeshStandardMaterial({ color: 0xff1111, emissive: 0x550000, roughness: 0.2 }),
+            greenSignal: new THREE.MeshStandardMaterial({ color: 0x11ff11, emissive: 0x005500, roughness: 0.2 }),
+            blueSignal: new THREE.MeshStandardMaterial({ color: 0x1188ff, emissive: 0x002255, roughness: 0.2 }),
+            copper: new THREE.MeshStandardMaterial({ color: 0x8b5a2b, metalness: 0.9, roughness: 0.4 }),
+            wood: new THREE.MeshStandardMaterial({ color: 0x2a1604, roughness: 1.0 }),
+            blackWire: new THREE.MeshStandardMaterial({ color: 0x080808, roughness: 0.8 }),
+            castIron: new THREE.MeshStandardMaterial({ color: 0x1c1c1c, metalness: 0.5, roughness: 0.7 }),
+            porcelain: new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.05, roughness: 0.1, clearcoat: 1.0 }),
+            glass: new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 0.9, roughness: 0.1, transparent: true, opacity: 0.7 }),
+            orangeEmissive: new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xff6600, roughness: 0.1 })
+        };
+
+        // Utility: Shadowed Mesh
+        function createMesh(geo, mat) {
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            return mesh;
+        }
+
+        // Utility: Bolt Proliferation
+        function addBolts(group, count, radius, distance, yPos, material) {
+            const boltGeo = new THREE.CylinderGeometry(0.015, 0.015, 0.02, 6);
+            for(let i=0; i<count; i++) {
+                const angle = (i / count) * Math.PI * 2;
+                const bolt = createMesh(boltGeo, material);
+                bolt.position.set(Math.cos(angle) * distance, yPos, Math.sin(angle) * distance);
+                group.add(bolt);
+            }
+        }
+
+        // Base Track Generator (Enhanced Detail)
+        function createRailSegment() {
+            const group = new THREE.Group();
+            
+            // Sub-ballast / Base concrete slab
+            const slab = createMesh(new THREE.BoxGeometry(3.0, 0.05, 0.8), mats.concrete);
+            slab.position.y = 0.025;
+            group.add(slab);
+
+            const sleeper = createMesh(new THREE.BoxGeometry(2.6, 0.2, 0.4), mats.wood);
+            sleeper.position.y = 0.15;
+            group.add(sleeper);
+
+            // Baseplates and clips for running rails
+            const bpGeo = new THREE.BoxGeometry(0.25, 0.02, 0.3);
+            const clipGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.15);
+            [-0.75, 0.75].forEach(x => {
+                const bp = createMesh(bpGeo, mats.castIron);
+                bp.position.set(x, 0.26, 0);
+                
+                const clip1 = createMesh(clipGeo, mats.rustyMetal);
+                clip1.rotation.x = Math.PI/2;
+                clip1.position.set(x - 0.08, 0.28, 0);
+                
+                const clip2 = createMesh(clipGeo, mats.rustyMetal);
+                clip2.rotation.x = Math.PI/2;
+                clip2.position.set(x + 0.08, 0.28, 0);
+                
+                group.add(bp, clip1, clip2);
+            });
+
+            // Running rails (Enhanced profile)
+            const railGeo = new THREE.BoxGeometry(0.08, 0.15, 2);
+            const railWeb = new THREE.BoxGeometry(0.03, 0.1, 2);
+            const railFoot = new THREE.BoxGeometry(0.12, 0.05, 2);
+            
+            [-0.75, 0.75].forEach(x => {
+                const head = createMesh(railGeo, mats.darkMetal);
+                head.position.set(x, 0.4, 0);
+                const web = createMesh(railWeb, mats.darkMetal);
+                web.position.set(x, 0.3, 0);
+                const foot = createMesh(railFoot, mats.darkMetal);
+                foot.position.set(x, 0.225, 0);
+                group.add(head, web, foot);
+            });
+            
+            // 4th rail (Center Negative)
+            const fPot = createMesh(new THREE.CylinderGeometry(0.06, 0.09, 0.15), mats.porcelain);
+            fPot.position.set(0, 0.325, 0);
+            addBolts(fPot, 4, 0.015, 0.08, -0.06, mats.darkMetal);
+            const fRail = createMesh(new THREE.BoxGeometry(0.12, 0.12, 2), mats.darkMetal);
+            fRail.position.set(0, 0.46, 0);
+
+            // 3rd rail (Outside Positive)
+            const tPot = createMesh(new THREE.CylinderGeometry(0.06, 0.09, 0.22), mats.porcelain);
+            tPot.position.set(-1.15, 0.36, 0);
+            addBolts(tPot, 4, 0.015, 0.08, -0.1, mats.darkMetal);
+            const tRail = createMesh(new THREE.BoxGeometry(0.12, 0.12, 2), mats.darkMetal);
+            tRail.position.set(-1.15, 0.53, 0);
+
+            group.add(fPot, fRail, tPot, tRail);
+            return group;
+        }
+
+        // --- ASSET GENERATORS (High Fidelity) ---
+
+        // 1. Tunnel Equipment Case
+        function generateTunnelCase() {
+            const group = new THREE.Group();
+            const bracket1 = createMesh(new THREE.BoxGeometry(0.6, 0.05, 0.5), mats.galvanized);
+            bracket1.position.set(0, 0.2, -0.2);
+            const bracket2 = createMesh(new THREE.BoxGeometry(0.6, 0.05, 0.5), mats.galvanized);
+            bracket2.position.set(0, 1.6, -0.2);
+            
+            const cabinet = createMesh(new THREE.BoxGeometry(0.8, 1.4, 0.3), mats.castIron);
+            cabinet.position.set(0, 0.9, 0);
+            
+            const door = createMesh(new THREE.BoxGeometry(0.76, 1.36, 0.02), mats.greyMetal);
+            door.position.set(0, 0.9, 0.16);
+
+            // Details: Hinges, Handle, Lock, Label
+            const hingeGeo = new THREE.CylinderGeometry(0.01, 0.01, 0.1);
+            [0.4, 1.4].forEach(y => {
+                const hinge = createMesh(hingeGeo, mats.darkMetal);
+                hinge.position.set(0.38, y, 0.16);
+                group.add(hinge);
+            });
+
+            const handle = createMesh(new THREE.BoxGeometry(0.02, 0.15, 0.04), mats.galvanized);
+            handle.position.set(-0.3, 0.9, 0.18);
+            
+            const label = createMesh(new THREE.PlaneGeometry(0.2, 0.15), mats.yellowWarning);
+            label.position.set(0, 1.3, 0.171);
+
+            group.add(bracket1, bracket2, cabinet, door, handle, label);
+            return group;
+        }
+
+        // 2. Conductor Rail Power Feed
+        function generateConductorPots() {
+            const group = new THREE.Group();
+            const track = createRailSegment();
+            group.add(track);
+            
+            const hookGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.4);
+            const hook = createMesh(hookGeo, mats.galvanized);
+            hook.rotation.z = -Math.PI / 4;
+            hook.position.set(-1.4, 0.2, 0);
+
+            const powerCable = createMesh(new THREE.TubeGeometry(
+                new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(-1.15, 0.53, 0),
+                    new THREE.Vector3(-1.4, 0.3, 0),
+                    new THREE.Vector3(-1.5, 0.05, 0)
+                ]), 20, 0.03, 8, false
+            ), mats.blackWire);
+            
+            group.add(hook, powerCable);
+            return group;
+        }
+
+        // 3. Deep Tube Block Signal
+        function generateTunnelSignal() {
+            const group = new THREE.Group();
+            
+            const post = createMesh(new THREE.BoxGeometry(0.1, 1.2, 0.1), mats.galvanized);
+            post.position.set(0, 0.6, -0.2);
+            
+            const backplate = createMesh(new THREE.BoxGeometry(0.4, 1.0, 0.1), mats.castIron);
+            backplate.position.set(0, 1.0, 0);
+
+            // Wiring Conduit
+            const conduit = createMesh(new THREE.CylinderGeometry(0.02, 0.02, 1.0), mats.blackWire);
+            conduit.position.set(0.08, 0.5, -0.15);
+            
+            const colors = [mats.redSignal, mats.greenSignal];
+            for(let i=0; i<2; i++) {
+                const yPos = 1.2 - (i*0.4);
+                const light = createMesh(new THREE.CylinderGeometry(0.1, 0.1, 0.05), colors[i]);
+                light.rotation.x = Math.PI / 2;
+                light.position.set(0, yPos, 0.05);
+                
+                const hoodGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.5, 32, 1, true, 0, Math.PI);
+                const hood = createMesh(hoodGeo, mats.darkMetal);
+                hood.material.side = THREE.DoubleSide;
+                hood.rotation.x = Math.PI / 2;
+                hood.position.set(0, yPos, 0.3);
+                
+                // Visor rim
+                const rim = createMesh(new THREE.TorusGeometry(0.14, 0.01, 8, 32, Math.PI), mats.castIron);
+                rim.rotation.z = Math.PI / 2;
+                rim.position.set(0, yPos, 0.55);
+
+                group.add(light, hood, rim);
+            }
+            group.add(post, backplate, conduit);
+            return group;
+        }
+
+        // 4. Low-Profile Point Machine
+        function generateSubPointMachine() {
+            const group = new THREE.Group();
+            const track = createRailSegment();
+            group.add(track);
+
+            const motorBox = createMesh(new THREE.BoxGeometry(0.9, 0.18, 0.6), mats.castIron);
+            motorBox.position.set(1.4, 0.09, 0);
+            
+            // Motor lid details
+            const lid = createMesh(new THREE.BoxGeometry(0.85, 0.02, 0.55), mats.greyMetal);
+            lid.position.set(1.4, 0.19, 0);
+            addBolts(lid, 6, 0.3, 0.4, 0.01, mats.darkMetal);
+            
+            const rodBase = createMesh(new THREE.BoxGeometry(1.2, 0.05, 0.15), mats.darkMetal);
+            rodBase.position.set(0.6, 0.1, 0);
+
+            const driveRod = createMesh(new THREE.CylinderGeometry(0.02, 0.02, 1.2), mats.galvanized);
+            driveRod.rotation.z = Math.PI/2;
+            driveRod.position.set(0.6, 0.15, 0.05);
+
+            // Cable entry
+            const cableIn = createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.2), mats.blackWire);
+            cableIn.rotation.x = Math.PI/2;
+            cableIn.position.set(1.8, 0.09, -0.3);
+
+            group.add(motorBox, lid, rodBase, driveRod, cableIn);
+            return group;
+        }
+
+        // 5. Track Circuit Bonds
+        function generateTrackBonds() {
+            const group = new THREE.Group();
+            const track = createRailSegment();
+            group.add(track);
+
+            const bondBox = createMesh(new THREE.BoxGeometry(0.25, 0.2, 0.25), mats.castIron);
+            bondBox.position.set(-1.4, 0.1, 0);
+            
+            const lid = createMesh(new THREE.BoxGeometry(0.22, 0.02, 0.22), mats.greyMetal);
+            lid.position.set(-1.4, 0.21, 0);
+            
+            // Multiple coiled wires
+            for(let i=0; i<3; i++) {
+                const wire = createMesh(new THREE.TubeGeometry(
+                    new THREE.CatmullRomCurve3([
+                        new THREE.Vector3(-1.3, 0.15, 0 + (i*0.05)),
+                        new THREE.Vector3(-1.1, 0.2, 0 + (i*0.05)),
+                        new THREE.Vector3(-0.8, 0.3, 0)
+                    ]), 10, 0.01, 8, false
+                ), mats.copper);
+                group.add(wire);
+            }
+
+            group.add(bondBox, lid);
+            return group;
+        }
+
+        // 6. Train Stop (Tripcock)
+        function generateTripcock() {
+            const group = new THREE.Group();
+            const track = createRailSegment();
+            group.add(track);
+
+            const base = createMesh(new THREE.BoxGeometry(0.35, 0.25, 0.35), mats.castIron);
+            base.position.set(0.95, 0.125, 0);
+            
+            // Pneumatic cylinder
+            const cylinder = createMesh(new THREE.CylinderGeometry(0.08, 0.08, 0.2), mats.galvanized);
+            cylinder.position.set(0.95, 0.35, 0);
+
+            // Trip arm
+            const arm = createMesh(new THREE.BoxGeometry(0.04, 0.45, 0.06), mats.yellowWarning);
+            arm.position.set(0.95, 0.45, 0);
+            
+            // Air hose
+            const hose = createMesh(new THREE.TubeGeometry(
+                new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(1.1, 0.1, 0),
+                    new THREE.Vector3(1.3, 0.05, 0.2),
+                    new THREE.Vector3(1.5, 0, 0)
+                ]), 12, 0.02, 8, false
+            ), mats.blackWire);
+
+            group.add(base, cylinder, arm, hose);
+            return group;
+        }
+
+        // 7. LU Impedance Bond
+        function generateLUImpedanceBond() {
+            const group = new THREE.Group();
+            const track = createRailSegment();
+            group.add(track);
+
+            const casing = createMesh(new THREE.BoxGeometry(0.6, 0.18, 0.9), mats.castIron);
+            casing.position.set(0, 0.12, 0);
+
+            const ribsGeo = new THREE.BoxGeometry(0.65, 0.02, 0.05);
+            for(let i=0; i<5; i++) {
+                const rib = createMesh(ribsGeo, mats.castIron);
+                rib.position.set(0, 0.2, -0.3 + (i*0.15));
+                group.add(rib);
+            }
+
+            const term1 = createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.25), mats.copper);
+            term1.position.set(-0.2, 0.25, 0.35);
+            const term2 = createMesh(new THREE.CylinderGeometry(0.04, 0.04, 0.25), mats.copper);
+            term2.position.set(0.2, 0.25, -0.35);
+
+            // Connecting heavy cables
+            const cableGen = (x, z) => createMesh(new THREE.TubeGeometry(
+                new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(x, 0.35, z),
+                    new THREE.Vector3(x*1.5, 0.4, z),
+                    new THREE.Vector3(x*3, 0.3, z)
+                ]), 10, 0.03, 8, false
+            ), mats.blackWire);
+            
+            group.add(casing, term1, term2, cableGen(-0.2, 0.35), cableGen(0.2, -0.35));
+            return group;
+        }
+
+        // 8. Tunnel Telephone
+        function generateTunnelTelephone() {
+            const group = new THREE.Group();
+            
+            const backplate = createMesh(new THREE.BoxGeometry(0.4, 0.6, 0.05), mats.galvanized);
+            backplate.position.set(0, 1.2, -0.1);
+
+            const box = createMesh(new THREE.BoxGeometry(0.3, 0.4, 0.2), mats.castIron);
+            box.position.set(0, 1.2, 0.025);
+            
+            const label = createMesh(new THREE.PlaneGeometry(0.15, 0.05), mats.white);
+            label.position.set(0, 1.35, 0.13);
+
+            const handset = createMesh(new THREE.BoxGeometry(0.06, 0.25, 0.08), mats.darkMetal);
+            handset.position.set(0.2, 1.2, 0.05);
+
+            // Curly cord
+            const cordCurve = new THREE.CatmullRomCurve3([
+                new THREE.Vector3(0.2, 1.1, 0.05),
+                new THREE.Vector3(0.1, 0.9, 0.1),
+                new THREE.Vector3(0, 1.05, 0.1)
+            ]);
+            const cord = createMesh(new THREE.TubeGeometry(cordCurve, 20, 0.01, 8, false), mats.blackWire);
+
+            group.add(backplate, box, label, handset, cord);
+            return group;
+        }
+
+        // 9. Tunnel Wall Cable Hangers
+        function generateCableHangers() {
+            const group = new THREE.Group();
+            const strut = createMesh(new THREE.BoxGeometry(0.05, 2.4, 0.05), mats.galvanized);
+            strut.position.set(0, 1.2, -0.2);
+
+            for(let i=0; i<7; i++) {
+                const yPos = 0.3 + (i*0.3);
+                // J-Hook
+                const hook = createMesh(new THREE.BoxGeometry(0.18, 0.02, 0.04), mats.rustyMetal);
+                hook.position.set(0.05, yPos, -0.2);
+                const hookLip = createMesh(new THREE.BoxGeometry(0.02, 0.08, 0.04), mats.rustyMetal);
+                hookLip.position.set(0.13, yPos + 0.03, -0.2);
+                
+                // Thick black cable
+                const cable = createMesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0), mats.blackWire);
+                cable.rotation.x = Math.PI / 2;
+                cable.position.set(0.06, yPos + 0.05, 0);
+                
+                // Thinner grey data cable alongside
+                const dataCable = createMesh(new THREE.CylinderGeometry(0.02, 0.02, 1.0), mats.greyMetal);
+                dataCable.rotation.x = Math.PI / 2;
+                dataCable.position.set(0.1, yPos + 0.02, 0);
+
+                group.add(hook, hookLip, cable, dataCable);
+            }
+            group.add(strut);
+            return group;
+        }
+
+        // 10. Lighting Distribution Board
+        function generateDistBoard() {
+            const group = new THREE.Group();
+            const board = createMesh(new THREE.BoxGeometry(0.7, 1.0, 0.3), mats.greyMetal);
+            board.position.set(0, 1.2, 0);
+
+            // Warning labels & switches
+            const label = createMesh(new THREE.PlaneGeometry(0.3, 0.15), mats.yellowWarning);
+            label.position.set(0, 1.5, 0.151);
+
+            for(let i=0; i<4; i++) {
+                const switchBox = createMesh(new THREE.BoxGeometry(0.08, 0.12, 0.05), mats.darkMetal);
+                switchBox.position.set(-0.2 + (i*0.13), 1.0, 0.17);
+                const toggle = createMesh(new THREE.CylinderGeometry(0.01, 0.01, 0.05), mats.redSignal);
+                toggle.rotation.x = Math.PI/4;
+                toggle.position.set(-0.2 + (i*0.13), 1.0, 0.19);
+                group.add(switchBox, toggle);
+            }
+
+            // Multiple conduits
+            [-0.2, 0, 0.2].forEach(x => {
+                const conduit = createMesh(new THREE.CylinderGeometry(0.03, 0.03, 1.0), mats.galvanized);
+                conduit.position.set(x, 0.4, 0);
+                group.add(conduit);
+            });
+
+            group.add(board, label);
+            return group;
+        }
+
+        // 11. Tunnel Rail Lubricator
+        function generateTunnelLubricator() {
+            const group = new THREE.Group();
+            const track = createRailSegment();
+            group.add(track);
+
+            const reservoir = createMesh(new THREE.CylinderGeometry(0.2, 0.2, 0.5), mats.castIron);
+            reservoir.position.set(1.4, 0.25, 0);
+            
+            const lid = createMesh(new THREE.CylinderGeometry(0.22, 0.22, 0.05), mats.greyMetal);
+            lid.position.set(1.4, 0.5, 0);
+
+            const pump = createMesh(new THREE.BoxGeometry(0.15, 0.2, 0.15), mats.darkMetal);
+            pump.position.set(1.15, 0.2, 0);
+
+            const feedHose = createMesh(new THREE.TubeGeometry(
+                new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(1.1, 0.2, 0),
+                    new THREE.Vector3(0.9, 0.25, 0),
+                    new THREE.Vector3(0.75, 0.35, 0)
+                ]), 10, 0.015, 8, false
+            ), mats.blackWire);
+
+            const applicator = createMesh(new THREE.BoxGeometry(0.05, 0.05, 0.4), mats.darkMetal);
+            applicator.position.set(0.8, 0.38, 0);
+
+            group.add(reservoir, lid, pump, feedHose, applicator);
+            return group;
+        }
+
+        // 12. Illuminated Speed Indicator
+        function generateIlluminatedSpeed() {
+            const group = new THREE.Group();
+            
+            const bracket = createMesh(new THREE.BoxGeometry(0.05, 0.6, 0.1), mats.galvanized);
+            bracket.position.set(0, 1.5, -0.05);
+
+            const box = createMesh(new THREE.BoxGeometry(0.45, 0.45, 0.15), mats.castIron);
+            box.position.set(0, 1.5, 0.05);
+
+            const face = createMesh(new THREE.BoxGeometry(0.4, 0.4, 0.02), mats.white);
+            face.position.set(0, 1.5, 0.13);
+            face.material.emissive = new THREE.Color(0x333333);
+
+            const visor = createMesh(new THREE.BoxGeometry(0.45, 0.05, 0.2), mats.castIron);
+            visor.position.set(0, 1.75, 0.15);
+
+            const numGen = (x) => {
+                const geom = new THREE.BoxGeometry(0.08, 0.25, 0.02);
+                const mesh = createMesh(geom, mats.blackWire);
+                mesh.position.set(x, 1.5, 0.15);
+                return mesh;
+            };
+
+            group.add(bracket, box, face, visor, numGen(-0.1), numGen(0.1));
+            return group;
+        }
+
+        // 13. Leaky Feeder Antenna
+        function generateLeakyFeeder() {
+            const group = new THREE.Group();
+            
+            const support = createMesh(new THREE.BoxGeometry(0.05, 0.4, 0.1), mats.galvanized);
+            support.position.set(0, 1.8, -0.1);
+
+            const hook = createMesh(new THREE.CylinderGeometry(0.015, 0.015, 0.2), mats.galvanized);
+            hook.position.set(0, 1.8, 0);
+
+            const coax = createMesh(new THREE.CylinderGeometry(0.06, 0.06, 1.0), mats.yellowWarning);
+            coax.rotation.x = Math.PI / 2;
+            coax.position.set(0, 1.7, 0);
+            
+            // Connectors / joints
+            const joint = createMesh(new THREE.CylinderGeometry(0.07, 0.07, 0.1), mats.darkMetal);
+            joint.rotation.x = Math.PI / 2;
+            joint.position.set(0, 1.7, 0.4);
+
+            group.add(support, hook, coax, joint);
+            return group;
+        }
+
+        // 14. Emergency Blue Light
+        function generateEmergencyLight() {
+            const group = new THREE.Group();
+            const bracket = createMesh(new THREE.BoxGeometry(0.2, 0.05, 0.25), mats.galvanized);
+            bracket.position.set(0, 1.5, -0.1);
+
+            const base = createMesh(new THREE.CylinderGeometry(0.08, 0.1, 0.15), mats.castIron);
+            base.position.set(0, 1.55, 0);
+
+            const bulb = createMesh(new THREE.SphereGeometry(0.08, 32, 32), mats.blueSignal);
+            bulb.position.set(0, 1.68, 0);
+
+            const cageGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.2, 8, 1, true);
+            const cage = createMesh(cageGeo, mats.darkMetal);
+            cage.material.wireframe = true;
+            cage.position.set(0, 1.68, 0);
+
+            group.add(bracket, base, bulb, cage);
+            return group;
+        }
+
+        // 15. Platform End CCTV Monitor
+        function generatePlatformMonitor() {
+            const group = new THREE.Group();
+            
+            const base = createMesh(new THREE.CylinderGeometry(0.1, 0.1, 0.05), mats.castIron);
+            base.position.set(0, 0.025, 0);
+
+            const pole = createMesh(new THREE.CylinderGeometry(0.06, 0.06, 2.0), mats.galvanized);
+            pole.position.set(0, 1.0, 0);
+
+            // Pivot Arm
+            const arm = createMesh(new THREE.BoxGeometry(0.3, 0.05, 0.05), mats.darkMetal);
+            arm.position.set(0.15, 1.5, 0);
+
+            const casing = createMesh(new THREE.BoxGeometry(0.65, 0.45, 0.15), mats.greyMetal);
+            casing.position.set(0.3, 1.5, 0.1);
+            casing.rotation.y = -Math.PI / 6;
+
+            const screen = createMesh(new THREE.BoxGeometry(0.55, 0.35, 0.02), mats.glass);
+            screen.position.set(0.3, 1.5, 0.18);
+            screen.rotation.y = -Math.PI / 6;
+
+            const cable = createMesh(new THREE.TubeGeometry(
+                new THREE.CatmullRomCurve3([
+                    new THREE.Vector3(0, 1.4, 0),
+                    new THREE.Vector3(0.1, 1.3, 0.1),
+                    new THREE.Vector3(0.3, 1.4, 0.05)
+                ]), 10, 0.01, 8, false
+            ), mats.blackWire);
+
+            group.add(base, pole, arm, casing, screen, cable);
+            return group;
+        }
+
+        // 16. Tunnel Bulkhead Luminaire
+        function generateTunnelLightFitting() {
+            const group = new THREE.Group();
+            
+            const base = createMesh(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 16), mats.castIron);
+            base.rotation.x = Math.PI / 2;
+            base.position.set(0, 1.5, -0.175);
+
+            const dome = createMesh(new THREE.SphereGeometry(0.1, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), mats.glass);
+            dome.rotation.x = Math.PI / 2;
+            dome.position.set(0, 1.5, -0.15);
+
+            const bulb = createMesh(new THREE.SphereGeometry(0.04, 16, 16), mats.orangeEmissive);
+            bulb.position.set(0, 1.5, -0.1);
+
+            const cageMat = mats.darkMetal;
+            for(let i=0; i<4; i++) {
+                const rib = createMesh(new THREE.CylinderGeometry(0.005, 0.005, 0.25), cageMat);
+                rib.rotation.x = Math.PI / 2;
+                rib.rotation.z = (i * Math.PI) / 4;
+                rib.position.set(0, 1.5, -0.1);
+                group.add(rib);
+            }
+            const cageRing = createMesh(new THREE.TorusGeometry(0.11, 0.005, 8, 24), cageMat);
+            cageRing.position.set(0, 1.5, -0.1);
+            group.add(cageRing);
+
+            const conduitVertical = createMesh(new THREE.CylinderGeometry(0.02, 0.02, 0.8), mats.galvanized);
+            conduitVertical.position.set(0, 1.0, -0.175);
+            
+            const junctionBox = createMesh(new THREE.BoxGeometry(0.1, 0.1, 0.1), mats.castIron);
+            junctionBox.position.set(0, 0.6, -0.175);
+
+            const pointLight = new THREE.PointLight(0xff6600, 1.5, 6);
+            pointLight.position.set(0, 1.5, 0.1);
+            
+            group.add(base, dome, bulb, conduitVertical, junctionBox, pointLight);
+            return group;
+        }
+
+        // Matrix Instantiation
+        const generators = [
+            { fn: generateTunnelCase, name: 'Equipment_Case' },
+            { fn: generateConductorPots, name: 'Conductor_Rails' },
+            { fn: generateTunnelSignal, name: 'Block_Signal' },
+            { fn: generateSubPointMachine, name: 'Point_Machine' },
+            { fn: generateTrackBonds, name: 'Track_Bonds' },
+            { fn: generateTripcock, name: 'Tripcock' },
+            { fn: generateLUImpedanceBond, name: 'Impedance_Bond' },
+            { fn: generateTunnelTelephone, name: 'Tunnel_Telephone' },
+            { fn: generateCableHangers, name: 'Cable_Hangers' },
+            { fn: generateDistBoard, name: 'Dist_Board' },
+            { fn: generateTunnelLubricator, name: 'Rail_Lubricator' },
+            { fn: generateIlluminatedSpeed, name: 'Speed_Indicator' },
+            { fn: generateLeakyFeeder, name: 'Leaky_Feeder' },
+            { fn: generateEmergencyLight, name: 'Emergency_Light' },
+            { fn: generatePlatformMonitor, name: 'CCTV_Monitor' },
+            { fn: generateTunnelLightFitting, name: 'Bulkhead_Light' }
+        ];
+
+        const spacingX = 4;
+        const spacingZ = 4;
+        const cols = 5;
+        const assetInstances = [];
+
+        generators.forEach((gen, index) => {
+            const asset = gen.fn();
+            asset.name = gen.name;
+            const row = Math.floor(index / cols);
+            const col = index % cols;
+            
+            asset.position.x = (col - (cols/2) + 0.5) * spacingX;
+            asset.position.z = (row - 1) * spacingZ;
+            
+            scene.add(asset);
+            assetInstances.push(asset);
+        });
+
+        // GUI & Exporter Setup
+        const gui = new dat.GUI({ width: 300 });
+        const exporter = new THREE.OBJExporter();
+
+        // Lighting Controls
+        const folderLight = gui.addFolder('Iluminación (Lighting)');
+        folderLight.add(lightParams, 'ambientIntensity', 0, 2).name('Ambient Power').onChange(v => ambientLight.intensity = v);
+        // FIX: The issue was with how dat.gui handles color events compared to Three.js color parsing.
+        // It's safer to read the hex value directly after dat.gui updates the object.
+        folderLight.addColor(lightParams, 'ambientColour').name('Ambient Color').onChange(v => ambientLight.color.set(v));
+        folderLight.add(lightParams, 'spotIntensity', 0, 5).name('Spot Power').onChange(v => spotLight.intensity = v);
+        folderLight.addColor(lightParams, 'spotColour').name('Spot Color').onChange(v => spotLight.color.set(v));
+        folderLight.add(lightParams, 'toggleFog').name('Tunnel Fog').onChange(v => {
+            scene.fog = v ? new THREE.Fog(0x111111, 15, 80) : null;
+        });
+        folderLight.open();
+
+        // Export Functionality
+        function triggerDownload(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.style.display = 'none';
+            link.href = url;
+            link.download = filename + '.obj';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        function exportScene() {
+            document.getElementById('loading').style.display = 'block';
+            setTimeout(() => {
+                const result = exporter.parse(scene);
+                triggerDownload(result, 'tube_assets_complete_scene');
+            }, 100);
+        }
+
+        function exportAsset(assetMesh, filename) {
+            document.getElementById('loading').style.display = 'block';
+            setTimeout(() => {
+                // To export individually without world offsets, clone and reset position
+                const clone = assetMesh.clone();
+                clone.position.set(0,0,0);
+                const result = exporter.parse(clone);
+                triggerDownload(result, filename);
+            }, 100);
+        }
+
+        const exportActions = {
+            exportAll: exportScene
+        };
+
+        const folderExport = gui.addFolder('Exportación (Export .OBJ)');
+        folderExport.add(exportActions, 'exportAll').name('EXPORT ENTIRE SCENE');
+        
+        assetInstances.forEach((asset, index) => {
+            const actionName = `export_${index}`;
+            exportActions[actionName] = () => exportAsset(asset, `LU_${asset.name}`);
+            folderExport.add(exportActions, actionName).name(`Export ${index+1}: ${asset.name}`);
+        });
+
+        // Rendering Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        window.onload = animate;
+    </script>
+</body>
+</html>

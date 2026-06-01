@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baker Street High-Resolution Asset Library v5.0</title>
+    <style>body { margin: 0; overflow: hidden; background: #0a0a0a; color: white; font-family: monospace; }</style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="info" style="position: absolute; top: 10px; left: 10px; z-index: 100; pointer-events: none; background: rgba(0,0,0,0.8); padding: 10px; border: 1px solid #444;">
+        Asset Library: Heritage & Advanced Telemetry v5.0<br>
+        Context: UCL Bartlett Spatial Integration<br>
+        State: CCTV Pitched Down. Cables Multiplied. Bridge Arch Trusses Fixed.
+    </div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x111111);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 200);
+        camera.position.set(15, 12, 25);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 2, 0);
+
+        const renderScene = new RenderPass(scene, camera);
+        const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+        bloomPass.threshold = 0.5;
+        bloomPass.strength = 1.6;
+        bloomPass.radius = 0.8;
+
+        const composer = new EffectComposer(renderer);
+        composer.addPass(renderScene);
+        composer.addPass(bloomPass);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+        const dirLight = new THREE.DirectionalLight(0xffffee, 0.9);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
+
+        // Procedural Textures
+        function createRoundelTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024; canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 1024, 1024);
+            ctx.strokeStyle = '#cc0000'; ctx.lineWidth = 140;
+            ctx.beginPath(); ctx.arc(512, 512, 380, 0, Math.PI * 2); ctx.stroke();
+            ctx.fillStyle = '#000099'; ctx.fillRect(80, 412, 864, 200);
+            ctx.fillStyle = '#ffffff'; ctx.font = 'bold 90px "Arial", sans-serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('BAKER STREET', 512, 512);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createPlatform5BrickTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#a69e8f'; ctx.fillRect(0, 0, 512, 512);
+            const rows = 16; const cols = 8;
+            const rowHeight = 512 / rows; const colWidth = 512 / cols;
+            const mortarGap = 6;
+            for (let y = 0; y < rows; y++) {
+                const offset = (y % 2 === 0) ? 0 : colWidth / 2;
+                for (let x = -1; x < cols + 1; x++) {
+                    const lum = 160 + Math.random() * 50;
+                    ctx.fillStyle = `rgb(${lum}, ${lum * 0.9}, ${lum * 0.7})`;
+                    ctx.fillRect(x * colWidth + offset + mortarGap / 2, y * rowHeight + mortarGap / 2, colWidth - mortarGap, rowHeight - mortarGap);
+                }
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        function createScreenTexture(dest) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#050505'; ctx.fillRect(0, 0, 512, 128);
+            ctx.fillStyle = '#ff8800'; ctx.font = 'bold 36px monospace';
+            ctx.fillText(`1  PLATFORM 1     1 MIN`, 20, 45);
+            ctx.fillStyle = '#aa5500'; ctx.font = 'bold 28px monospace';
+            ctx.fillText(`2  ${dest.padEnd(14, ' ')} 5 MIN`, 20, 95);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createWayOutTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512; canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffcc00'; ctx.fillRect(0, 0, 512, 128);
+            ctx.fillStyle = '#000000'; ctx.font = 'bold 50px "Arial", sans-serif';
+            ctx.fillText('WAY OUT', 20, 75);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const texRoundel = createRoundelTexture();
+        const texPlatformBrick = createPlatform5BrickTexture();
+        const texScreen = createScreenTexture("WATFORD");
+        const texWayOut = createWayOutTexture();
+
+        // Material Syntax Matrix
+        const mats = {
+            woodDark: new THREE.MeshStandardMaterial({ color: 0x3d2314, roughness: 0.9 }),
+            ironCast: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.8, metalness: 0.6 }),
+            brass: new THREE.MeshStandardMaterial({ color: 0xb5a642, roughness: 0.3, metalness: 0.8 }),
+            glassMilkOff: new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.2, transmission: 0.2, opacity: 0.9, transparent: true }),
+            glassMilkOn: new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xfff5e6, emissiveIntensity: 2.0 }),
+            signageOff: new THREE.MeshStandardMaterial({ map: texRoundel, roughness: 0.4 }),
+            signageOn: new THREE.MeshStandardMaterial({ map: texRoundel, emissiveMap: texRoundel, emissive: 0xffffff, emissiveIntensity: 1.5 }),
+            bakerBrick: new THREE.MeshStandardMaterial({ map: texPlatformBrick, roughness: 0.9, color: 0xdddddd }),
+            readerYellow: new THREE.MeshStandardMaterial({ color: 0xffcc00, roughness: 0.4 }),
+            readerRing: new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x00ffff, emissiveIntensity: 2.5 }),
+            redMetal: new THREE.MeshStandardMaterial({ color: 0xaa1111, metalness: 0.6, roughness: 0.4 }),
+            metal: new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.4 }),
+            metalGalvanised: new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.9, roughness: 0.3 }),
+            signalRed: new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 3.0 }),
+            signalAmber: new THREE.MeshStandardMaterial({ color: 0xffbf00, emissive: 0x332200, emissiveIntensity: 0.1 }),
+            signalGreen: new THREE.MeshStandardMaterial({ color: 0x00ff00, emissive: 0x003300, emissiveIntensity: 0.1 }),
+            cableBlack: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9, metalness: 0.2 }),
+            cableOrange: new THREE.MeshStandardMaterial({ color: 0xdd5500, roughness: 0.8, metalness: 0.1 }),
+            cctvGrey: new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.3, roughness: 0.4 }),
+            cctvGlass: new THREE.MeshStandardMaterial({ color: 0x020202, roughness: 0.05, metalness: 0.95 }),
+            wayOutMat: new THREE.MeshStandardMaterial({ map: texWayOut, roughness: 0.5 }),
+            fanBladeMat: new THREE.MeshLambertMaterial({ color: 0x1a1a1a }),
+            fanCasingMat: new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7, roughness: 0.6 }),
+            wireMesh: new THREE.MeshBasicMaterial({ color: 0x222222, wireframe: true }),
+            irRing: new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 1.0 })
+        };
+
+        class AssetFactory {
+            // --- HERITAGE FURNITURE ---
+
+            static buildHeritageBench() {
+                const group = new THREE.Group();
+                const slatGeo = new THREE.BoxGeometry(2.4, 0.04, 0.08);
+                
+                for(let i = 0; i < 7; i++) {
+                    const slat = new THREE.Mesh(slatGeo, mats.woodDark);
+                    slat.position.set(0, 0.45, -0.25 + (i * 0.09));
+                    slat.castShadow = true;
+                    group.add(slat);
+                }
+
+                for(let i = 0; i < 5; i++) {
+                    const slat = new THREE.Mesh(slatGeo, mats.woodDark);
+                    slat.position.set(0, 0.55 + (i * 0.09), -0.32);
+                    slat.rotation.x = Math.PI / 12;
+                    slat.castShadow = true;
+                    group.add(slat);
+                }
+
+                // Mathematical inversion of 2D X-coordinates forces correct 3D Z-alignment.
+                const legShape = new THREE.Shape();
+                legShape.moveTo(0.35, 0);       // Rear
+                legShape.lineTo(-0.25, 0);      // Front
+                legShape.lineTo(-0.25, 0.4);    // Seat front
+                legShape.lineTo(-0.35, 0.45);   // Armrest forward (+Z)
+                legShape.lineTo(0.38, 1.0);     // Backrest rise backward (-Z)
+                legShape.lineTo(0.45, 0.4);     // Seat rear
+                legShape.lineTo(0.35, 0);       
+
+                const extrudeSettings = { depth: 0.06, bevelEnabled: true, bevelSegments: 2, steps: 2, bevelSize: 0.01, bevelThickness: 0.01 };
+                const legGeo = new THREE.ExtrudeGeometry(legShape, extrudeSettings);
+
+                [-1.1, 0, 1.1].forEach(x => {
+                    const leg = new THREE.Mesh(legGeo, mats.ironCast);
+                    leg.position.set(x - 0.03, 0, -0.03); 
+                    leg.rotation.y = Math.PI / 2; 
+                    leg.castShadow = true;
+                    group.add(leg);
+                });
+
+                return group;
+            }
+
+            // --- OPTICAL & TELEMETRY INFRASTRUCTURE ---
+
+            static buildCCTV_Box() {
+                const group = new THREE.Group();
+                const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.4, 0.05), mats.metal);
+                bracket.position.y = 0.2;
+                const housing = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.4), mats.cctvGrey);
+                housing.position.set(0, 0.35, 0.15);
+                housing.rotation.x = Math.PI / 6; // Pitched down 30 degrees towards ground
+                
+                const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 16), mats.cctvGlass);
+                lens.rotation.x = Math.PI / 2;
+                lens.position.z = 0.22;
+                housing.add(lens);
+                
+                const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.2), mats.cableBlack);
+                wire.position.set(0, 0.3, 0);
+                wire.rotation.x = Math.PI / 8;
+                group.add(bracket, housing, wire);
+                return group;
+            }
+
+            static buildCCTV_Dome_Ceiling() {
+                const group = new THREE.Group();
+                const base = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 16), mats.cctvGrey);
+                const dome = new THREE.Mesh(new THREE.SphereGeometry(0.18, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2), mats.cctvGlass);
+                dome.position.y = -0.02;
+                dome.rotation.x = Math.PI; // Hemispherical arc faces directly downward
+                group.add(base, dome);
+                return group;
+            }
+
+            static buildCCTV_Dome_Wall() {
+                const group = new THREE.Group();
+                const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.3), mats.metal);
+                arm.rotation.x = Math.PI / 2;
+                arm.position.z = 0.15;
+                const head = this.buildCCTV_Dome_Ceiling();
+                head.position.set(0, -0.05, 0.3);
+                head.rotation.x = Math.PI / 4; // Angled downwards towards platform
+                group.add(arm, head);
+                return group;
+            }
+
+            static buildCCTV_Bullet_Standard() {
+                const group = new THREE.Group();
+                const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.2), mats.metal);
+                arm.rotation.x = Math.PI / 2;
+                arm.position.z = 0.1;
+                
+                const body = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.3, 16), mats.cctvGrey);
+                body.position.set(0, -0.05, 0.25);
+                // Rotate to Z-axis, then add positive X rotation to pitch optical vector DOWN
+                body.rotation.x = (Math.PI / 2) + (Math.PI / 6); 
+                
+                const lens = new THREE.Mesh(new THREE.CircleGeometry(0.06, 16), mats.cctvGlass);
+                lens.position.set(0, 0.151, 0);
+                lens.rotation.x = -Math.PI / 2; // Flat against cylinder cap
+                body.add(lens);
+                
+                group.add(arm, body);
+                return group;
+            }
+
+            static buildCCTV_Bullet_IR() {
+                const group = this.buildCCTV_Bullet_Standard();
+                group.children[1].add(
+                    (()=>{
+                        const ir = new THREE.Mesh(new THREE.RingGeometry(0.04, 0.06, 16), mats.irRing);
+                        ir.position.set(0, 0.152, 0);
+                        ir.rotation.x = -Math.PI / 2;
+                        return ir;
+                    })()
+                );
+                return group;
+            }
+
+            static buildCCTV_Dual_Bullet() {
+                const group = new THREE.Group();
+                const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.5), mats.metal);
+                pole.position.y = 0.25;
+                
+                const cam1 = this.buildCCTV_Bullet_Standard();
+                cam1.position.set(-0.05, 0.5, 0);
+                cam1.rotation.y = Math.PI / 4; 
+
+                const cam2 = this.buildCCTV_Bullet_Standard();
+                cam2.position.set(0.05, 0.5, 0);
+                cam2.rotation.y = -Math.PI / 4; 
+
+                group.add(pole, cam1, cam2);
+                return group;
+            }
+
+            static buildCCTV_PTZ() {
+                const group = new THREE.Group();
+                const arm = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 0.4), mats.metal);
+                arm.position.set(0, 0.4, 0.2);
+                const housing = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.25, 16), mats.cctvGrey);
+                housing.position.set(0, 0.25, 0.4);
+                // Pitch PTZ housing down
+                housing.rotation.x = Math.PI / 8;
+                
+                const dome = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 16, 0, Math.PI*2, 0, Math.PI/2), mats.cctvGlass);
+                dome.position.y = -0.12;
+                dome.rotation.x = Math.PI; 
+                housing.add(dome);
+                group.add(arm, housing);
+                return group;
+            }
+
+            static buildCCTV_360() {
+                const group = new THREE.Group();
+                const base = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.1, 16), mats.cctvGrey);
+                for(let i=0; i<4; i++) {
+                    const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.08, 16, 16, 0, Math.PI*2, 0, Math.PI/2), mats.cctvGlass);
+                    sensor.rotation.x = Math.PI; 
+                    const angle = (Math.PI / 2) * i;
+                    sensor.position.set(Math.cos(angle)*0.15, -0.05, Math.sin(angle)*0.15);
+                    sensor.rotation.z = Math.cos(angle) * (Math.PI/6);
+                    sensor.rotation.x += Math.sin(angle) * (Math.PI/6);
+                    base.add(sensor);
+                }
+                group.add(base);
+                return group;
+            }
+
+            // --- INDUSTRIAL INFRASTRUCTURE ---
+
+            static buildExtractorFan() {
+                const fanGroup = new THREE.Group();
+                
+                const casingGeo = new THREE.CylinderGeometry(1.4, 1.4, 1.0, 32, 1, true);
+                const casing = new THREE.Mesh(casingGeo, mats.fanCasingMat);
+                casing.rotation.x = Math.PI / 2;
+                
+                const grilleGeo = new THREE.CircleGeometry(1.4, 32);
+                const grilleF = new THREE.Mesh(grilleGeo, mats.wireMesh);
+                grilleF.position.z = 0.5;
+                const grilleB = new THREE.Mesh(grilleGeo, mats.wireMesh);
+                grilleB.position.z = -0.5;
+
+                const motorGeo = new THREE.CylinderGeometry(0.3, 0.3, 0.6, 16);
+                const motor = new THREE.Mesh(motorGeo, mats.metal);
+                motor.rotation.x = Math.PI / 2;
+
+                const strutGeo = new THREE.CylinderGeometry(0.03, 0.03, 2.8, 8);
+                const strut1 = new THREE.Mesh(strutGeo, mats.metal);
+                const strut2 = strut1.clone();
+                strut2.rotation.z = Math.PI / 2;
+                
+                const bladeGeo = new THREE.BoxGeometry(0.3, 1.0, 0.02);
+                const rotorGroup = new THREE.Group();
+                for(let i=0; i<8; i++) {
+                    const blade = new THREE.Mesh(bladeGeo, mats.fanBladeMat); 
+                    blade.position.y = 0.6;
+                    blade.rotation.x = 0.6; 
+                    const pivot = new THREE.Group();
+                    pivot.rotation.z = (Math.PI * 2 / 8) * i;
+                    pivot.add(blade);
+                    rotorGroup.add(pivot);
+                }
+                rotorGroup.position.z = 0.15;
+                
+                fanGroup.add(casing, grilleF, grilleB, motor, strut1, strut2, rotorGroup);
+                fanGroup.userData = { isFan: true, rotor: rotorGroup }; 
+                return fanGroup;
+            }
+
+            // --- 5 INFRASTRUCTURE PIPING VARIATIONS ---
+
+            static buildPipingRun_Standard() {
+                const group = new THREE.Group();
+                const pipeGeo = new THREE.CylinderGeometry(0.08, 0.08, 10.0, 16);
+                for(let i=0; i<3; i++) {
+                    const pipe = new THREE.Mesh(pipeGeo, mats.metal);
+                    pipe.rotation.x = Math.PI / 2;
+                    pipe.position.set(0, i * 0.25, 0);
+                    group.add(pipe);
+                }
+                const bracketGeo = new THREE.BoxGeometry(0.1, 0.8, 0.2);
+                for(let z=-4; z<=4; z+=2.5) {
+                    const bracket = new THREE.Mesh(bracketGeo, mats.ironCast);
+                    bracket.position.set(-0.05, 0.25, z);
+                    group.add(bracket);
+                }
+                return group;
+            }
+
+            static buildWallCables_Sagging() {
+                const group = new THREE.Group();
+                const length = 10.0;
+                class CustomSagCurve extends THREE.Curve {
+                    constructor(len) { super(); this.len = len; }
+                    getPoint(t, optionalTarget = new THREE.Vector3()) {
+                        const ty = -Math.sin(t * Math.PI) * 0.2;
+                        return optionalTarget.set(0, ty, (t - 0.5) * this.len);
+                    }
+                }
+                const bracketSpacing = 2.5;
+                const bracketGeo = new THREE.BoxGeometry(0.2, 0.4, 0.1);
+                for(let z = -length/2; z <= length/2; z += bracketSpacing) {
+                    const bracket = new THREE.Mesh(bracketGeo, mats.metal);
+                    bracket.position.set(-0.05, -0.1, z);
+                    group.add(bracket);
+                }
+                for(let s=0; s < length/bracketSpacing; s++) {
+                    const path = new CustomSagCurve(bracketSpacing);
+                    const cableGeo = new THREE.TubeGeometry(path, 12, 0.02, 8, false);
+                    for(let i=0; i<4; i++) {
+                        const cable = new THREE.Mesh(cableGeo, mats.cableBlack);
+                        cable.position.set(0.05, -0.1 - (i * 0.04), -length/2 + (s * bracketSpacing) + (bracketSpacing/2));
+                        group.add(cable);
+                    }
+                }
+                return group;
+            }
+
+            static buildHVACDuct_Industrial() {
+                const group = new THREE.Group();
+                const ductGeo = new THREE.BoxGeometry(0.8, 0.6, 10.0);
+                const duct = new THREE.Mesh(ductGeo, mats.metalGalvanised);
+                group.add(duct);
+                // Procedural ribbed flanges
+                const ribGeo = new THREE.BoxGeometry(0.85, 0.65, 0.05);
+                for(let z=-4.5; z<=4.5; z+=1.5) {
+                    const rib = new THREE.Mesh(ribGeo, mats.metal);
+                    rib.position.z = z;
+                    group.add(rib);
+                }
+                return group;
+            }
+
+            static buildCableTray_Bundle() {
+                const group = new THREE.Group();
+                const trayGeo = new THREE.BoxGeometry(0.4, 0.05, 10.0);
+                const tray = new THREE.Mesh(trayGeo, mats.metalGalvanised);
+                group.add(tray);
+                
+                const wireGeo = new THREE.CylinderGeometry(0.015, 0.015, 10.0, 8);
+                wireGeo.rotateX(Math.PI/2);
+                for(let i=0; i<12; i++) {
+                    const wireMat = Math.random() > 0.8 ? mats.cableOrange : mats.cableBlack;
+                    const wire = new THREE.Mesh(wireGeo, wireMat);
+                    wire.position.set((Math.random()-0.5)*0.3, 0.04 + Math.random()*0.02, 0);
+                    group.add(wire);
+                }
+                return group;
+            }
+
+            static buildVerticalConduit_Drop() {
+                const group = new THREE.Group();
+                const pipeGeo = new THREE.CylinderGeometry(0.05, 0.05, 6.0, 16);
+                const pipe = new THREE.Mesh(pipeGeo, mats.metal);
+                pipe.position.y = 3.0;
+                const boxGeo = new THREE.BoxGeometry(0.3, 0.4, 0.15);
+                const junction = new THREE.Mesh(boxGeo, mats.ironCast);
+                junction.position.y = 0.2;
+                group.add(pipe, junction);
+                return group;
+            }
+
+            // --- PEDESTRIAN TOPOLOGY ---
+
+            static buildPedestrianBridgeStandalone() {
+                const group = new THREE.Group();
+                const deckHeight = 6.0;
+                const bWidth = 4.0;
+                const span = 17.0; 
+                const innerX = 3.5;
+
+                const deckGeo = new THREE.BoxGeometry(span, 0.4, bWidth);
+                const deck = new THREE.Mesh(deckGeo, mats.redMetal);
+                deck.position.set(0, deckHeight, 0);
+                deck.receiveShadow = true;
+                deck.castShadow = true;
+                group.add(deck);
+
+                // Truss underbelly replacing semicircles. Utilising extruded 2D shape for exact boolean boundary.
+                const archSpan = (innerX * 2);
+                const archWidth = archSpan / 4;
+                for(let i=0; i<4; i++) {
+                    const archX = -innerX + (archWidth/2) + (i * archWidth);
+                    const archOuter = archWidth/2 - 0.1;
+                    const archInner = archOuter - 0.2;
+                    
+                    const trussShape = new THREE.Shape();
+                    trussShape.absarc(0, 0, archOuter, 0, Math.PI, false);
+                    trussShape.lineTo(-archInner, 0);
+                    trussShape.absarc(0, 0, archInner, Math.PI, 0, true);
+                    trussShape.lineTo(archOuter, 0);
+
+                    const trussGeo = new THREE.ExtrudeGeometry(trussShape, {depth: bWidth, bevelEnabled: false});
+                    const truss = new THREE.Mesh(trussGeo, mats.redMetal);
+                    truss.position.set(archX, deckHeight - 0.2, -bWidth/2);
+                    group.add(truss);
+                }
+
+                const railHGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.0);
+                railHGeo.rotateZ(Math.PI/2);
+                
+                const frontRailSegments = [{x: -7.5, len: 2.0}, {x: 0, len: 9.0}, {x: 7.5, len: 2.0}];
+                frontRailSegments.forEach(seg => {
+                    const r = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, seg.len).rotateZ(Math.PI/2), mats.redMetal);
+                    r.position.set(seg.x, deckHeight + 1.1, bWidth/2 - 0.1);
+                    group.add(r);
+                });
+
+                const railBack = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, span).rotateZ(Math.PI/2), mats.redMetal);
+                railBack.position.set(0, deckHeight + 1.1, -bWidth/2 + 0.1);
+                group.add(railBack);
+
+                const createFlight = (xOffset) => {
+                    const flight = new THREE.Group();
+                    const stepCount = 28;
+                    const stairRise = deckHeight - 1.1; 
+                    const stepRise = stairRise / stepCount; 
+                    const stepRun = 0.3;
+                    const stairRun = stepCount * stepRun;
+                    const stairWidth = 2.8;
+
+                    const stepsGeo = new THREE.BoxGeometry(stairWidth, stepRise, stepRun);
+                    const stepsInstanced = new THREE.InstancedMesh(stepsGeo, mats.redMetal, stepCount);
+                    const dummy = new THREE.Object3D();
+
+                    for (let s = 0; s < stepCount; s++) {
+                        dummy.position.set(0, 1.1 + stairRise - (s * stepRise) - (stepRise/2), bWidth/2 + (s * stepRun) + (stepRun/2));
+                        dummy.updateMatrix();
+                        stepsInstanced.setMatrixAt(s, dummy.matrix);
+                    }
+                    stepsInstanced.castShadow = true;
+                    flight.add(stepsInstanced);
+
+                    const stairLength = Math.sqrt(stairRun**2 + stairRise**2);
+                    const stairAngle = Math.atan2(stairRise, stairRun);
+                    
+                    const hRailGeo = new THREE.CylinderGeometry(0.06, 0.06, stairLength);
+                    hRailGeo.rotateX(Math.PI/2); 
+                    
+                    [-1, 1].forEach(side => {
+                        const rail = new THREE.Mesh(hRailGeo, mats.redMetal);
+                        rail.position.set((stairWidth/2 - 0.15) * side, 1.1 + (stairRise/2) + 0.9, bWidth/2 + (stairRun/2));
+                        
+                        // Correct pitch vector: +rotation.x tilts Z downwards across positive Z descent.
+                        rail.rotation.x = stairAngle; 
+                        
+                        const postGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.9);
+                        for(let p=0; p<6; p++) {
+                            const fract = p / 5;
+                            const post = new THREE.Mesh(postGeo, mats.redMetal);
+                            post.position.set(0, -0.45, (fract - 0.5) * stairLength);
+                            // Counter-rotation to plumb line
+                            post.rotation.x = -stairAngle; 
+                            rail.add(post);
+                        }
+                        flight.add(rail);
+                    });
+                    
+                    flight.position.x = xOffset;
+                    return flight;
+                };
+
+                group.add(createFlight(6.0));
+                group.add(createFlight(-6.0));
+
+                return group;
+            }
+
+            // Heritage Minor Assets
+            static buildRoundelSign(isOn) { const g = new THREE.Group(); const frame = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 0.1, 64).rotateX(Math.PI/2), mats.brass); const faceMat = isOn ? mats.signageOn : mats.signageOff; const faceF = new THREE.Mesh(new THREE.CircleGeometry(0.8, 64), faceMat); faceF.position.z = 0.051; const faceB = new THREE.Mesh(new THREE.CircleGeometry(0.8, 64), faceMat); faceB.rotation.y = Math.PI; faceB.position.z = -0.051; const b = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 0.05), mats.ironCast); b.position.y = 1.0; g.add(frame, faceF, faceB, b); return g; }
+            static buildGlobeLamp(isOn) { const g = new THREE.Group(); const globeMat = isOn ? mats.glassMilkOn : mats.glassMilkOff; const globe = new THREE.Mesh(new THREE.SphereGeometry(0.3, 32, 32), globeMat); globe.position.y = 3.0; if(isOn) { const pl = new THREE.PointLight(0xfff5e6, 2.0, 10); pl.position.y = 3.0; g.add(pl); } const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.1, 3.0, 16), mats.ironCast); post.position.y = 1.5; const base = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 0.4, 16), mats.ironCast); base.position.y = 0.2; g.add(globe, post, base); return g; }
+            static buildTrackSignal() { const g = new THREE.Group(); const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.0), mats.metal); p.position.y = 1.0; const h = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.9, 0.2), mats.ironCast); h.position.set(0, 1.8, 0.1); const lr = new THREE.Mesh(new THREE.CircleGeometry(0.1, 16), mats.signalRed); lr.position.set(0, 2.1, 0.201); const la = new THREE.Mesh(new THREE.CircleGeometry(0.1, 16), mats.signalAmber); la.position.set(0, 1.8, 0.201); const lg = new THREE.Mesh(new THREE.CircleGeometry(0.1, 16), mats.signalGreen); lg.position.set(0, 1.5, 0.201); g.add(p, h, lr, la, lg); return g; }
+            static buildOysterReader() { const g = new THREE.Group(); const p = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.1, 16), mats.ironCast); p.position.y=0.55; const h = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.15, 0.4), mats.ironCast); h.position.set(0, 1.15, 0); h.rotation.x = Math.PI/8; const pad = new THREE.Mesh(new THREE.CircleGeometry(0.12, 32), mats.readerYellow); pad.position.set(0, 1.23, 0.02); pad.rotation.x = -Math.PI/2 + Math.PI/8; const rng = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.11, 32), mats.readerRing); rng.position.set(0, 1.231, 0.02); rng.rotation.x = -Math.PI/2 + Math.PI/8; g.add(p, h, pad, rng); return g; }
+            static buildWayOutSign() { const g = new THREE.Group(); const s = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.5, 0.05), mats.wayOutMat); g.add(s); return g; }
+            static buildHangingSign() { const g = new THREE.Group(); const m1 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0), mats.metal); m1.position.set(1.0, 0.5, 0); const m2 = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0), mats.metal); m2.position.set(-1.0, 0.5, 0); const sb = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.8, 0.1), mats.metal); const d1 = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.7), mats.infoScreen); d1.position.z = 0.051; const d2 = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.7), mats.infoScreen); d2.rotation.y = Math.PI; d2.position.z = -0.051; sb.add(d1, d2); g.add(m1, m2, sb); return g; }
+        }
+
+        // 5. Instantiation & Arrangement Matrix
+        const gallery = new THREE.Group();
+        
+        const floorGeo = new THREE.PlaneGeometry(60, 60);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.9 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        const localMat = mats.bakerBrick.clone();
+        localMat.map = texPlatformBrick.clone();
+        localMat.map.needsUpdate = true;
+        localMat.map.repeat.set(10, 3);
+        const wallGeo = new THREE.PlaneGeometry(30, 8);
+        const wall = new THREE.Mesh(wallGeo, localMat);
+        wall.position.set(0, 4, -8);
+        gallery.add(wall);
+
+        // -- Front Row --
+        const bench = AssetFactory.buildHeritageBench(); bench.position.set(-6, 0, 5);
+        const reader = AssetFactory.buildOysterReader(); reader.position.set(-2, 0, 5);
+        const signal = AssetFactory.buildTrackSignal(); signal.position.set(2, 0, 5);
+        const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.25, 0.8, 16), mats.metal); bin.position.set(6, 0.4, 5);
+        gallery.add(bench, reader, signal, bin);
+
+        // -- Middle Row --
+        const lampOff = AssetFactory.buildGlobeLamp(false); lampOff.position.set(-8, 0, 0);
+        const lampOn = AssetFactory.buildGlobeLamp(true); lampOn.position.set(-4, 0, 0);
+        const signOff = AssetFactory.buildRoundelSign(false); signOff.position.set(0, 1.5, 0);
+        const signOn = AssetFactory.buildRoundelSign(true); signOn.position.set(4, 1.5, 0);
+        const wayOut = AssetFactory.buildWayOutSign(); wayOut.position.set(8, 2.0, 0);
+        gallery.add(lampOff, lampOn, signOff, signOn, wayOut);
+
+        // -- Telemetry Array --
+        const cctv360 = AssetFactory.buildCCTV_360(); cctv360.position.set(-11, 6, -6.5);
+        const cctvBox = AssetFactory.buildCCTV_Box(); cctvBox.position.set(-9, 5, -7.5);
+        const cctvDomeWall = AssetFactory.buildCCTV_Dome_Wall(); cctvDomeWall.position.set(-7, 5, -7.5);
+        const cctvPTZ = AssetFactory.buildCCTV_PTZ(); cctvPTZ.position.set(-5, 5, -7.5);
+        const cctvBullet = AssetFactory.buildCCTV_Bullet_Standard(); cctvBullet.position.set(-3, 5, -7.5);
+        const cctvIR = AssetFactory.buildCCTV_Bullet_IR(); cctvIR.position.set(-1, 5, -7.5);
+        const cctvDual = AssetFactory.buildCCTV_Dual_Bullet(); cctvDual.position.set(1, 4.5, -7.5);
+        const fan = AssetFactory.buildExtractorFan(); fan.position.set(4, 5, -7.0);
+        const hangingSign = AssetFactory.buildHangingSign(); hangingSign.position.set(-5, 4.5, -4);
+        gallery.add(cctv360, cctvBox, cctvDomeWall, cctvPTZ, cctvBullet, cctvIR, cctvDual, fan, hangingSign);
+
+        // -- 5 Infrastructure Pipeline Variations --
+        const pipeRun = AssetFactory.buildPipingRun_Standard(); pipeRun.position.set(8, 5, -7.8);
+        const cableSag = AssetFactory.buildWallCables_Sagging(); cableSag.position.set(8, 3, -7.8);
+        const ductHVAC = AssetFactory.buildHVACDuct_Industrial(); ductHVAC.position.set(8, 1, -7.8);
+        const trayCable = AssetFactory.buildCableTray_Bundle(); trayCable.position.set(-8, 0.5, -7.0);
+        const conduitVert = AssetFactory.buildVerticalConduit_Drop(); conduitVert.position.set(13, 0, -7.8);
+        gallery.add(pipeRun, cableSag, ductHVAC, trayCable, conduitVert);
+
+        // -- Structural Terminus --
+        const bridge = AssetFactory.buildPedestrianBridgeStandalone();
+        bridge.position.set(0, 0, -20); 
+        gallery.add(bridge);
+
+        scene.add(gallery);
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        const animatedFans = [];
+        gallery.traverse((child) => {
+            if (child.isGroup && child.userData.isFan) {
+                animatedFans.push(child);
+            }
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            animatedFans.forEach(fan => {
+                fan.userData.rotor.rotation.z -= 0.12; 
+            });
+            composer.render();
+        }
+
+        animate();
+    </script>
+</body>
+</html>

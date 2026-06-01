@@ -1,0 +1,1472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S8 Stock: Absolute Topology & Lighting GA</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #030303; color: #eee; font-family: 'Inter', monospace; transition: background-color 0.5s; }
+        canvas { display: block; }
+        .ui-layer { position: absolute; top: 0; left: 0; pointer-events: none; width: 100%; height: 100%; padding: 25px; box-sizing: border-box; }
+        .panel { pointer-events: auto; background: rgba(8, 8, 8, 0.95); border: 1px solid #333; padding: 20px; border-radius: 0px; backdrop-filter: blur(12px); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.8); }
+        .btn { cursor: pointer; padding: 10px 14px; border: 1px solid #444; background: #111; color: #fff; font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 1.5px; transition: 0.15s; width: 100%; text-align: left; display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .btn:hover { background: #dc2626; border-color: #ff0000; }
+        .btn span { color: #888; font-weight: normal; }
+        .tech-label { font-size: 9px; color: #777; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 8px; display: block; }
+        .data-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 15px; }
+        .data-cell { font-size: 10px; }
+        .data-cell span { color: #666; display: block; font-size: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        input[type=range] { width: 100%; margin-top: 5px; accent-color: #dc2626; }
+    </style>
+</head>
+<body>
+
+<div class="ui-layer flex flex-col justify-between">
+    <div class="flex justify-between items-start">
+        <div class="panel w-80" style="border-left: 3px solid #dc2626;">
+            <span class="tech-label">S8 Stock | Precision Telemetry</span>
+            <h1 class="text-xl font-black mb-4 tracking-tight">TRAIN CONFIGURATOR</h1>
+            
+            <div class="data-grid">
+                <div class="data-cell"><span>Active Layout</span>Complete Trainset</div>
+                <div class="data-cell"><span>Topology</span>DM & M Modules</div>
+                <div class="data-cell"><span>Furnishings</span>Coving & Draught Screens</div>
+                <div class="data-cell"><span>Lighting</span>Actuation Indicators</div>
+            </div>
+
+            <div style="margin-bottom: 15px; border-bottom: 1px solid #222; padding-bottom: 15px;">
+                <span class="tech-label" style="margin-bottom: 2px;">Carriage Count [Unidades]</span>
+                <div class="flex justify-between items-center">
+                    <input type="range" id="carCount" min="1" max="8" value="8" oninput="updateCarCountUI()" onchange="buildScene()">
+                    <span id="carCountDisplay" class="ml-4 font-bold text-lg text-red-500">8</span>
+                </div>
+            </div>
+
+            <div>
+                <button class="btn" onclick="buildScene()" style="border-color: #2563eb; background: #0f172a;">RE-RANDOMISE INTERIORS</button>
+                <button class="btn" onclick="toggleShell()">Shell Opacity <span id="shellStatus" class="text-red-500">TRANSPARENT</span></button>
+                <button class="btn" onclick="toggleDoors()">Pneumatic Doors <span id="doorStatus">CLOSED</span></button>
+                <button class="btn" onclick="toggleLights()">Cabin Illumination <span id="lightStatus" class="text-green-500">ON</span></button>
+                <button class="btn" onclick="toggleCabLight()">Driver Cabin Light <span id="cabLightStatus" class="text-gray-400">OFF</span></button>
+                <button class="btn" onclick="toggleExternalLights()">Exterior Lights <span id="extLightStatus" class="text-gray-400">OFF</span></button>
+                <button class="btn" onclick="toggleInspectionMode()">Ambient Light Mode <span id="inspectStatus" class="text-gray-400">OFF</span></button>
+                <button class="btn" onclick="resetCamera()" style="margin-top: 15px; justify-content: center; background: #222;">RESET VIEWPORT</button>
+            </div>
+        </div>
+
+        <div class="panel text-right">
+            <span class="tech-label">Controles [Controls]</span>
+            <p class="text-[9px] text-gray-500 font-mono">ORBIT: LMB | PAN: RMB | ZOOM: SCR</p>
+            <p class="text-[9px] text-yellow-500 font-mono mt-1">HOLD SHIFT + LMB FOR TORCH</p>
+        </div>
+    </div>
+
+    <div class="panel self-center mb-6 px-16 border-t border-red-800">
+        <p class="text-[10px] tracking-[0.2em] text-center text-gray-400">UCL BARTLETT URBAN PLANNING | LONDON</p>
+    </div>
+</div>
+
+<script>
+    let scene, camera, renderer, controls, trainGroup;
+    
+    // Globally Bound State Matrix
+    window.AppState = {
+        shellOpaque: false,
+        doorsOpen: false,
+        lightsOn: true,
+        cabLightOn: false,
+        externalLightsOn: false,
+        inspectionMode: false,
+        torchActive: false
+    };
+    
+    let doorControls = [];
+    let interiorLights = [];
+    let inspectionLights = [];
+    let cabLights = [];
+    let externalLights = [];
+
+    // Optical Telemetry
+    let raycaster = new THREE.Raycaster();
+    let mouse = new THREE.Vector2();
+    let torchLight;
+
+    // Expanded Dimensional Vectors (Meters)
+    const CAR_WIDTH = 2.82;
+    const GANGWAY_DEPTH = 0.80; 
+    const BOGIE_HALF_DIST = 5.41; // 10.82m bogie centres
+    
+    // Intermediate Car (M) Dimensions
+    const M_OVERHANG = 2.307;
+    const M_LENGTH = (BOGIE_HALF_DIST + M_OVERHANG) * 2; // 15.434m
+    const M_COUPLER_EXT = 0.4;
+    const M_HALF_COUPLED = BOGIE_HALF_DIST + M_OVERHANG + M_COUPLER_EXT; // 8.117m
+    
+    // Driving Motor (DM) Dimensions
+    const DM_FRONT_OVERHANG = 4.312; 
+    const DM_LENGTH = BOGIE_HALF_DIST + M_OVERHANG + BOGIE_HALF_DIST + DM_FRONT_OVERHANG; // 17.439m
+    const DM_NOSE_EXT = 0.3; 
+    const DM_FRONT_COUPLED = BOGIE_HALF_DIST + DM_FRONT_OVERHANG + DM_NOSE_EXT; // 10.022m
+
+    const mats = {
+        shell: new THREE.MeshStandardMaterial({ color: 0xe0e0e0, metalness: 0.2, roughness: 0.7, transparent: true, opacity: 0.15, side: THREE.DoubleSide }),
+        roof: new THREE.MeshStandardMaterial({ color: 0x999999, metalness: 0.1, roughness: 0.9, transparent: true, opacity: 0.15 }),
+        floor: new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 1.0 }),
+        seat: new THREE.MeshStandardMaterial({ color: 0x1d4ed8, roughness: 0.8 }), 
+        frame: new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.5, roughness: 0.7 }),
+        glass: new THREE.MeshPhysicalMaterial({ color: 0x8899a6, metalness: 0.2, roughness: 0.1, transmission: 0.6, ior: 1.5, transparent: true, opacity: 0.7, side: THREE.DoubleSide }),
+        cabGlass: new THREE.MeshPhysicalMaterial({ color: 0x222222, metalness: 0.5, roughness: 0.1, transmission: 0.5, ior: 1.5, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
+        red: new THREE.MeshStandardMaterial({ color: 0xb91c1c, metalness: 0.1, roughness: 0.6 }),
+        yellow: new THREE.MeshStandardMaterial({ color: 0xeab308, metalness: 0.1 }),
+        separator: new THREE.MeshPhysicalMaterial({ color: 0xdddddd, transmission: 0.8, roughness: 0.2, transparent: true }),
+        bellows: new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.9 }),
+        blueLine: new THREE.MeshStandardMaterial({ color: 0x001066, metalness: 0.3, roughness: 0.5 }),
+        adPanel: new THREE.MeshStandardMaterial({ color: 0xeeeeee, roughness: 0.9, metalness: 0.1 }),
+        indicatorOff: new THREE.MeshBasicMaterial({ color: 0x220500 }),
+        indicatorOn: new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xffaa00, emissiveIntensity: 2.0 }),
+        headlight: new THREE.MeshBasicMaterial({ color: 0xffffee }),
+        taillight: new THREE.MeshBasicMaterial({ color: 0xff0000 })
+    };
+
+    function init() {
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050505);
+        scene.fog = new THREE.Fog(0x050505, 20, 250);
+
+        const grid = new THREE.GridHelper(500, 100, 0x222222, 0x0a0a0a);
+        grid.position.y = -1.002; 
+        scene.add(grid);
+
+        trainGroup = new THREE.Group();
+        scene.add(trainGroup);
+        
+        buildScene();
+
+        const ambient = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambient);
+        const dir1 = new THREE.DirectionalLight(0xffffff, 0.9);
+        dir1.position.set(20, 40, 20);
+        scene.add(dir1);
+
+        const inspectDir = new THREE.DirectionalLight(0xffffff, 0.0);
+        inspectDir.position.set(0, -20, 0); 
+        scene.add(inspectDir);
+        const inspectAmbient = new THREE.AmbientLight(0xffffff, 0.0);
+        scene.add(inspectAmbient);
+        inspectionLights.push(inspectDir, inspectAmbient);
+
+        torchLight = new THREE.SpotLight(0xffffff, 0.0, 80, 0.3, 0.5, 1.5);
+        scene.add(torchLight);
+        scene.add(torchLight.target);
+
+        camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 12, 50);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxDistance = 300;
+
+        window.addEventListener('resize', onResize);
+        window.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('mousedown', (e) => {
+            if (e.shiftKey && e.button === 0) AppState.torchActive = true;
+        });
+        window.addEventListener('mouseup', () => {
+            AppState.torchActive = false;
+        });
+
+        animate();
+    }
+
+    function onMouseMove(e) {
+        mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    }
+
+    function updateCarCountUI() {
+        document.getElementById('carCountDisplay').innerText = document.getElementById('carCount').value;
+    }
+
+    function buildScene() {
+        while(trainGroup.children.length > 0){ trainGroup.remove(trainGroup.children[0]); }
+        doorControls = [];
+        interiorLights = [];
+        cabLights = [];
+        externalLights = [];
+
+        const numCars = parseInt(document.getElementById('carCount').value);
+        let currentX = 0;
+
+        for (let i = 0; i < numCars; i++) {
+            const configType = Math.random() > 0.5 ? 'CONFIG_1' : 'CONFIG_2';
+            const isDM = (i === 0 || i === numCars - 1);
+            const isFront = (i === numCars - 1); // Last car faces +X
+
+            let originX;
+            if (isDM) {
+                if (!isFront) {
+                    originX = currentX + DM_FRONT_COUPLED;
+                    currentX = originX + M_HALF_COUPLED;
+                } else {
+                    originX = currentX + M_HALF_COUPLED;
+                    currentX = originX + DM_FRONT_COUPLED;
+                }
+            } else {
+                originX = currentX + M_HALF_COUPLED;
+                currentX = originX + M_HALF_COUPLED;
+            }
+
+            // Headlight logic: White front, Red tail
+            const isActiveForward = (isFront);
+
+            const car = createS8Unit(configType, isDM, isFront, isActiveForward);
+            car.position.x = originX;
+            trainGroup.add(car);
+
+            if (i < numCars - 1) {
+                const gangway = createHollowGangway();
+                gangway.position.x = currentX;
+                gangway.position.y = 1.15; 
+                gangway.rotation.y = Math.PI / 2;
+                trainGroup.add(gangway);
+            }
+        }
+
+        trainGroup.position.x = -currentX / 2;
+
+        trainGroup.traverse(child => {
+            if (child.userData.isShellWall) {
+                child.material.transparent = !AppState.shellOpaque;
+                child.material.opacity = AppState.shellOpaque ? 1.0 : 0.15;
+            }
+        });
+
+        updateLightState();
+    }
+
+    function updateLightState() {
+        interiorLights.forEach(l => {
+            if (l.isPointLight) l.intensity = AppState.lightsOn ? 0.7 : 0.0;
+            else if (l.isMesh) l.material.emissiveIntensity = AppState.lightsOn ? 1.0 : 0.0;
+        });
+        cabLights.forEach(l => {
+            if (l.isPointLight) l.intensity = AppState.cabLightOn ? 0.8 : 0.0;
+            else if (l.isMesh) l.material.emissiveIntensity = AppState.cabLightOn ? 1.0 : 0.0;
+        });
+        externalLights.forEach(l => {
+            let shouldBeOn = false;
+            if (AppState.externalLightsOn) {
+                if (l.userData.isActiveForward && l.userData.isHeadlight) shouldBeOn = true;
+                if (!l.userData.isActiveForward && l.userData.isTailLight) shouldBeOn = true;
+            }
+            
+            if (l.isSpotLight || l.isPointLight) {
+                l.intensity = shouldBeOn ? l.userData.defaultIntensity : 0.0;
+            } else if (l.isMesh) {
+                l.material.emissiveIntensity = shouldBeOn ? l.userData.defaultIntensity : 0.0;
+            }
+        });
+    }
+
+    function toggleCabLight() {
+        AppState.cabLightOn = !AppState.cabLightOn;
+        updateLightState();
+        const el = document.getElementById('cabLightStatus'); 
+        el.innerText = AppState.cabLightOn ? 'ON' : 'OFF'; 
+        el.className = AppState.cabLightOn ? 'text-green-500 font-mono' : 'text-gray-400 font-mono';
+    }
+
+    function toggleExternalLights() {
+        AppState.externalLightsOn = !AppState.externalLightsOn;
+        updateLightState();
+        const el = document.getElementById('extLightStatus'); 
+        el.innerText = AppState.externalLightsOn ? 'ON' : 'OFF'; 
+        el.className = AppState.externalLightsOn ? 'text-green-500 font-mono' : 'text-gray-400 font-mono';
+    }
+
+    // --- Mechanical Subsystems ---
+
+    function createHighFidelityBogie() {
+        const group = new THREE.Group();
+        const wBase = 2.307, wRad = 0.385, gauge = 1.435;
+
+        const sideGeom = new THREE.BoxGeometry(3.0, 0.25, 0.15);
+        const sideL = new THREE.Mesh(sideGeom, mats.frame); sideL.position.set(0, 0.3, gauge/2 + 0.15);
+        const sideR = new THREE.Mesh(sideGeom, mats.frame); sideR.position.set(0, 0.3, -gauge/2 - 0.15);
+        const transom = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.15, gauge), mats.frame); transom.position.set(0, 0.3, 0);
+
+        const bagGeom = new THREE.CylinderGeometry(0.25, 0.25, 0.15, 16);
+        const bag1 = new THREE.Mesh(bagGeom, mats.frame); bag1.position.set(0, 0.5, gauge/2 + 0.15);
+        const bag2 = new THREE.Mesh(bagGeom, mats.frame); bag2.position.set(0, 0.5, -gauge/2 - 0.15);
+        group.add(sideL, sideR, transom, bag1, bag2);
+
+        const wheelGeom = new THREE.CylinderGeometry(wRad, wRad, 0.12, 32).rotateX(Math.PI/2);
+        const axleGeom = new THREE.CylinderGeometry(0.08, 0.08, gauge + 0.4).rotateX(Math.PI/2);
+        const springGeom = new THREE.CylinderGeometry(0.07, 0.07, 0.3, 8).rotateY(Math.PI/2);
+
+        [-wBase/2, wBase/2].forEach(wx => {
+            const axle = new THREE.Mesh(axleGeom, mats.frame); axle.position.set(wx, 0, 0);
+            group.add(axle);
+
+            [-gauge/2, gauge/2].forEach(wz => {
+                const wheel = new THREE.Mesh(wheelGeom, mats.frame); wheel.position.set(wx, 0, wz);
+                const zOffset = wz > 0 ? wz + 0.15 : wz - 0.15;
+                const aBox = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.2), mats.frame); aBox.position.set(wx, 0, zOffset);
+                const spring = new THREE.Mesh(springGeom, mats.frame); spring.position.set(wx, 0.2, zOffset);
+                group.add(wheel, aBox, spring);
+            });
+        });
+        return group;
+    }
+
+    function createUnderframeEquipment(length) {
+        const group = new THREE.Group();
+        const boxes = [
+            { x: -3.5, w: 1.8, h: 0.5, d: 1.2, z: 0.7 },
+            { x: -1.0, w: 2.5, h: 0.6, d: 1.4, z: -0.4 },
+            { x: 1.5, w: 1.2, h: 0.4, d: 1.0, z: 0.8 },
+            { x: 3.5, w: 1.5, h: 0.5, d: 2.0, z: 0.0 }
+        ];
+        boxes.forEach(b => {
+            const mesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.d), mats.frame);
+            mesh.position.set(b.x, -0.15, b.z); 
+            group.add(mesh);
+        });
+        return group;
+    }
+
+    function createHollowGangway() {
+        const group = new THREE.Group();
+        const shape = new THREE.Shape();
+        shape.moveTo(-0.9, -1.1); shape.lineTo(0.9, -1.1); shape.lineTo(0.9, 1.4); shape.lineTo(-0.9, 1.4); shape.lineTo(-0.9, -1.1);
+        
+        const hole = new THREE.Path();
+        hole.moveTo(-0.7, -1.05); 
+        hole.lineTo(-0.7, 1.3); 
+        hole.lineTo(0.7, 1.3); 
+        hole.lineTo(0.7, -1.05); 
+        hole.lineTo(-0.7, -1.05);
+        shape.holes.push(hole);
+
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: GANGWAY_DEPTH, bevelEnabled: false });
+        geom.translate(0, 0, -GANGWAY_DEPTH/2); 
+        const bellows = new THREE.Mesh(geom, mats.bellows);
+        
+        const drawbar = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, GANGWAY_DEPTH), mats.frame);
+        drawbar.position.set(0, -1.35, 0); 
+        
+        group.add(bellows, drawbar);
+        return group;
+    }
+
+    // --- Asset Factories ---
+
+    function createSeatGeometry(width) {
+        const shape = new THREE.Shape();
+        shape.moveTo(0, 0); shape.lineTo(0.45, 0); shape.quadraticCurveTo(0.5, 0, 0.5, 0.1); shape.lineTo(0.5, 0.15); shape.lineTo(0.1, 0.15); shape.lineTo(0.1, 0.6); shape.quadraticCurveTo(0.1, 0.65, 0.05, 0.65); shape.lineTo(0, 0.65); shape.lineTo(0, 0);
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: true, bevelSegments: 1, steps: 1, bevelSize: 0.01, bevelThickness: 0.01 });
+        geom.center(); 
+        return geom;
+    }
+
+    function createTipUpGeometry(width) {
+        const shape = new THREE.Shape();
+        shape.moveTo(0, 0); shape.lineTo(0.1, 0); shape.lineTo(0.1, 0.45); shape.lineTo(0.2, 0.45); shape.lineTo(0.2, 0.55); shape.lineTo(0.1, 0.55); shape.lineTo(0.1, 0.65); shape.lineTo(0, 0.65); shape.lineTo(0, 0);
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false });
+        geom.center(); return geom;
+    }
+
+    function createSidewaysSeat(count) { return new THREE.Mesh(createSeatGeometry(0.5 * count), mats.seat); }
+    function createTipUpSeat(count) { return new THREE.Mesh(createTipUpGeometry(0.5 * count), mats.seat); }
+
+    function createBayAsset() {
+        const group = new THREE.Group();
+        const s1 = createSidewaysSeat(2); s1.rotation.y = 0; s1.position.set(-0.6, 0, 0); 
+        const s2 = createSidewaysSeat(2); s2.rotation.y = Math.PI; s2.position.set(0.6, 0, 0); 
+        group.add(s1, s2);
+        return group;
+    }
+
+    function createPole(x, z) {
+        return new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 2.7), mats.yellow).translateY(1.35).translateZ(z).translateX(x);
+    }
+
+    function createDraughtScreen(x, z) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.0, 0.6), mats.glass);
+        mesh.position.set(x, 1.1, z);
+        return mesh;
+    }
+
+    function addRoundedRectHole(shape, x, y, w, h, r) {
+        const hole = new THREE.Path();
+        hole.moveTo(x - w/2 + r, y - h/2); hole.lineTo(x + w/2 - r, y - h/2); hole.quadraticCurveTo(x + w/2, y - h/2, x + w/2, y - h/2 + r);
+        hole.lineTo(x + w/2, y + h/2 - r); hole.quadraticCurveTo(x + w/2, y + h/2, x + w/2 - r, y + h/2);
+        hole.lineTo(x - w/2 + r, y + h/2); hole.quadraticCurveTo(x - w/2, y + h/2, x - w/2, y + h/2 - r);
+        hole.lineTo(x - w/2, y - h/2 + r); hole.quadraticCurveTo(x - w/2, y - h/2, x - w/2 + r, y - h/2);
+        shape.holes.push(hole);
+    }
+
+    function createCurvedGlassPane(w, h, r) {
+        const shape = new THREE.Shape();
+        shape.moveTo(-w/2+r, -h/2); shape.lineTo(w/2-r, -h/2); shape.quadraticCurveTo(w/2, -h/2, w/2, -h/2+r);
+        shape.lineTo(w/2, h/2-r); shape.quadraticCurveTo(w/2, h/2, w/2-r, h/2);
+        shape.lineTo(-w/2+r, h/2); shape.quadraticCurveTo(-w/2, h/2, -w/2, h/2-r);
+        shape.lineTo(-w/2, -h/2+r); shape.quadraticCurveTo(-w/2, -h/2, -w/2+r, -h/2);
+        return new THREE.Mesh(new THREE.ShapeGeometry(shape), mats.glass);
+    }
+
+    // --- Conformal Surface Algorithms for DM Nose ---
+    function getConformedData(z, y, xBase) {
+        let x = xBase;
+        // 1. Vertical Curve into Roof (Tight curve at the very top)
+        if (y > 2.55) {
+            let slope = Math.pow(y - 2.55, 2) * 10.0;
+            x -= slope;
+        }
+        // 2. Horizontal Wrap-Around (Cheeks)
+        let absZ = Math.abs(z);
+        if (absZ > 0.6) {
+            let wrap = Math.pow(absZ - 0.6, 2) * 0.7;
+            x -= wrap;
+            // Dramatic corner curve into roof
+            if (y > 2.45) {
+                x -= Math.pow(y - 2.45, 2) * Math.pow(absZ - 0.6, 2) * 15.0;
+            }
+        }
+        // 3. Tumblehome Integration
+        let tOffset = 0;
+        if (y < 0.75 && y >= 0) {
+            let factor = (0.75 - y) / 0.75;
+            tOffset = Math.pow(factor, 1.5) * 0.12;
+        } else if (y < 0) {
+            tOffset = 0.12;
+        } else if (y > 2.1) {
+            let factor = (y - 2.1) / (2.55 - 2.1);
+            if (factor > 1.0) factor = 1.0;
+            tOffset = Math.pow(factor, 1.5) * 0.22;
+        }
+        
+        if (tOffset > 0) {
+            if (absZ > 0.34) {
+                let maxOuterZ = (CAR_WIDTH/2) - 0.34;
+                let push = tOffset * ((absZ - 0.34) / maxOuterZ);
+                z = z > 0 ? z - push : z + push;
+            }
+        }
+        // 4. Roof Crown Falloff
+        if (y > 2.3) y -= Math.pow(absZ / (CAR_WIDTH/2), 2) * 0.08;
+        return new THREE.Vector3(x, y, z);
+    }
+
+    function createConformedMesh(geom, xBase, mat, zOffset = 0, yOffset = 0, xPull = 0) {
+        geom.translate(zOffset, yOffset, 0); 
+        const pos = geom.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+            let z = pos.getX(i); // In 2D shapes, X maps to train Z (Width)
+            let y = pos.getY(i); // In 2D shapes, Y maps to train Y (Height)
+            let depth = pos.getZ(i); // The extrusion depth
+            let cData = getConformedData(z, y, xBase);
+            // Add depth to x so the extrusion goes backwards (or forwards depending on sign)
+            // ExtrudeGeometry extrudes from 0 to depth. We want it to go backwards, so we subtract depth.
+            pos.setXYZ(i, cData.x + xPull - depth, cData.y, cData.z);
+        }
+        geom.computeVertexNormals();
+        return new THREE.Mesh(geom, mat);
+    }
+
+    function createConformedShape(shape, xBase, mat, xPull = 0) {
+        const geom = new THREE.ShapeGeometry(shape, 32);
+        const doubleMat = mat.clone();
+        doubleMat.side = THREE.DoubleSide;
+        return createConformedMesh(geom, xBase, doubleMat, 0, 0, xPull);
+    }
+
+    function placeLamp(group, xBase, z, y, radius, mat, isSpot, activeLightMat) {
+        let p0 = getConformedData(z, y, xBase);
+        let pY = getConformedData(z, y + 0.05, xBase);
+        let pZ = getConformedData(z + 0.05, y, xBase);
+        
+        let vY = new THREE.Vector3().subVectors(pY, p0);
+        let vZ = new THREE.Vector3().subVectors(pZ, p0);
+        let normal = new THREE.Vector3().crossVectors(vZ, vY).normalize();
+
+        const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.04, 16), mat);
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+        mesh.position.copy(p0).addScaledVector(normal, 0.02); 
+        group.add(mesh);
+
+        if (isSpot) {
+            const pl = new THREE.SpotLight(activeLightMat.color.getHex(), 0.0, 80, 0.4, 0.5, 1);
+            pl.position.copy(p0).addScaledVector(normal, 0.1);
+            pl.target.position.copy(p0).addScaledVector(normal, 10);
+            group.add(pl);
+            group.add(pl.target);
+            cabLights.push(pl);
+        }
+    }
+
+    function applyTumblehome(geom, invert = false) {
+        if(!geom.attributes.position) return;
+        const pos = geom.attributes.position;
+        for(let i=0; i<pos.count; i++) {
+            let y = pos.getY(i);
+            let z = pos.getZ(i);
+            let zOffset = 0;
+            
+            if (y < 0.75) {
+                let factor = (0.75 - y) / 0.75;
+                zOffset = Math.pow(factor, 1.5) * 0.12; // 12cm organic inward curvature
+            } else if (y > 2.1) {
+                let factor = (y - 2.1) / (2.55 - 2.1);
+                zOffset = Math.pow(factor, 1.5) * 0.22; // 22cm inward curvature at the roofline
+            }
+            
+            if (zOffset > 0) {
+                pos.setZ(i, invert ? z + zOffset : z - zOffset);
+            }
+        }
+        geom.computeVertexNormals();
+    }
+
+    function createDoorLeafAsset(isLeft) {
+        const shape = new THREE.Shape();
+        shape.moveTo(-0.375, 0); 
+        shape.lineTo(0.375, 0); 
+        shape.lineTo(0.375, 0.35); shape.lineTo(0.375, 0.75); // Subdivisions for smooth bending
+        shape.lineTo(0.375, 2.3); 
+        shape.lineTo(-0.375, 2.3); 
+        shape.lineTo(-0.375, 0.75); shape.lineTo(-0.375, 0.35); 
+        shape.lineTo(-0.375, 0);
+        
+        addRoundedRectHole(shape, 0, 1.4, 0.48, 1.05, 0.05);
+
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: 0.03, bevelEnabled: false });
+        geom.translate(0, 0, -0.015); 
+        applyTumblehome(geom);
+        
+        const mesh = new THREE.Mesh(geom, mats.red);
+        const glass = createCurvedGlassPane(0.48, 1.05, 0.05); glass.position.set(0, 1.4, 0); mesh.add(glass);
+
+        return mesh;
+    }
+
+    function createDoorAsset() {
+        const group = new THREE.Group();
+        const leftLeaf = createDoorLeafAsset(true); leftLeaf.position.set(-0.38, 0, 0);
+        const rightLeaf = createDoorLeafAsset(false); rightLeaf.position.set(0.38, 0, 0);
+
+        const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.02), mats.indicatorOff);
+        indicator.position.set(0, 2.4, -0.08); 
+        group.add(indicator);
+
+        group.add(leftLeaf, rightLeaf);
+        group.userData = { left: leftLeaf, right: rightLeaf, closedL: -0.38, openL: -1.1, closedR: 0.38, openR: 1.1, ind: indicator };
+        doorControls.push(group);
+        return group;
+    }
+
+    // --- Core Shell Constructors ---
+
+    function createWallWithHoles(length, windows, doors) {
+        const shape = new THREE.Shape();
+        shape.moveTo(-length/2, 0); 
+        shape.lineTo(length/2, 0); 
+        shape.lineTo(length/2, 0.35); shape.lineTo(length/2, 0.75); 
+        shape.lineTo(length/2, 2.55); 
+        shape.lineTo(-length/2, 2.55); 
+        shape.lineTo(-length/2, 0.75); shape.lineTo(-length/2, 0.35); 
+        shape.lineTo(-length/2, 0);
+
+        doors.forEach(x => {
+            const hole = new THREE.Path();
+            hole.moveTo(x - 0.8, 0); hole.lineTo(x + 0.8, 0); hole.lineTo(x + 0.8, 2.3); hole.lineTo(x - 0.8, 2.3); hole.lineTo(x - 0.8, 0);
+            shape.holes.push(hole);
+        });
+
+        windows.forEach(w => addRoundedRectHole(shape, w.x, 1.45, w.w, 1.2, 0.1));
+
+        // Inner Wall Shell
+        const geomInner = new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: false });
+        applyTumblehome(geomInner);
+        const meshInner = new THREE.Mesh(geomInner, mats.shell.clone());
+        meshInner.userData.isShellWall = true;
+
+        // Outer Wall Shell (Pocket Door Void Construction)
+        const geomOuter = new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: false });
+        applyTumblehome(geomOuter);
+        const meshOuter = new THREE.Mesh(geomOuter, mats.shell.clone());
+        meshOuter.userData.isShellWall = true;
+        meshOuter.position.z = 0.07; // 70mm kinematic gap
+        
+        const group = new THREE.Group();
+        group.add(meshInner);
+        group.add(meshOuter);
+
+        windows.forEach(w => {
+            const pane = createCurvedGlassPane(w.w, 1.2, 0.1); 
+            pane.position.set(w.x, 1.45, 0.045); // Suspended centrally in the void
+            group.add(pane);
+        });
+
+        doors.forEach(x => { 
+            const door = createDoorAsset(); 
+            door.position.set(x, 0, 0.035); // Enclosed within the pocket void
+            group.add(door); 
+        });
+        
+        const addLiverySegment = (x1, x2) => {
+            if(x2 <= x1) return;
+            const w = x2 - x1;
+            const lineGeom = new THREE.PlaneGeometry(w, 0.20, 1, 6);
+            lineGeom.translate(0, 0.1, 0); 
+            applyTumblehome(lineGeom);
+            
+            const line = new THREE.Mesh(lineGeom, mats.blueLine);
+            line.position.set(x1 + w/2, 0.0, 0.07 + 0.021); // Welded to OUTER shell
+            line.userData.isShellWall = true;
+            group.add(line);
+        };
+
+        let cx = -length/2;
+        doors.forEach(dx => { addLiverySegment(cx, dx - 0.8); cx = dx + 0.8; });
+        addLiverySegment(cx, length/2);
+
+        return group;
+    }
+
+    function createCarriageEndWall(W, isBulkhead = false) {
+        const group = new THREE.Group();
+        const shape = new THREE.Shape();
+        
+        const doorHalfWidth = isBulkhead ? 0.3 : 0.7;
+        const doorHeight = isBulkhead ? 2.0 : 2.15;
+
+        // Start at the right side of the door opening
+        shape.moveTo(doorHalfWidth, 0);
+        
+        // Bottom right curve (tumblehome)
+        for (let y = 0; y <= 0.75; y += 0.05) {
+            let factor = (0.75 - y) / 0.75;
+            let zOffset = Math.pow(factor, 1.5) * 0.12;
+            shape.lineTo(W/2 - zOffset, y);
+        }
+        // Straight side
+        shape.lineTo(W/2, 2.1);
+        // Top right curve
+        for (let y = 2.15; y <= 2.55; y += 0.05) {
+            let factor = (y - 2.1) / (2.55 - 2.1);
+            let zOffset = Math.pow(factor, 1.5) * 0.22;
+            shape.lineTo(W/2 - zOffset, y);
+        }
+        // Roof curve
+        shape.quadraticCurveTo(0, 3.21, -(W/2 - 0.22), 2.55);
+        // Top left curve
+        for (let y = 2.55; y >= 2.1; y -= 0.05) {
+            let factor = (y - 2.1) / (2.55 - 2.1);
+            let zOffset = Math.pow(factor, 1.5) * 0.22;
+            shape.lineTo(-(W/2 - zOffset), y);
+        }
+        // Straight side left
+        shape.lineTo(-W/2, 0.75);
+        // Bottom left curve
+        for (let y = 0.75; y >= 0; y -= 0.05) {
+            let factor = (0.75 - y) / 0.75;
+            let zOffset = Math.pow(factor, 1.5) * 0.12;
+            shape.lineTo(-(W/2 - zOffset), y);
+        }
+        
+        // Now at bottom left corner of the carriage.
+        // Draw line to the left edge of the door
+        shape.lineTo(-doorHalfWidth, 0);
+        
+        // Draw the door cutout (going UP, RIGHT, DOWN)
+        shape.lineTo(-doorHalfWidth, doorHeight);
+        shape.lineTo(doorHalfWidth, doorHeight);
+        shape.lineTo(doorHalfWidth, 0);
+
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: 0.1, bevelEnabled: false });
+        geom.translate(0, 0, -0.05);
+        const wall = new THREE.Mesh(geom, mats.shell.clone());
+        wall.userData.isShellWall = true;
+        wall.position.y = 0; 
+        group.add(wall);
+        return group;
+    }
+
+    function createCabModule(isActiveForward) {
+        const group = new THREE.Group();
+        const cabLen = 1.442;
+        const W = CAR_WIDTH;
+        const xBase = 1.242; // Absolute forward bounds
+
+        const xSideEnd = xBase - 0.53; // End side walls where the curved front starts
+
+        // 1. Hollow Cab Body (Tumblehome-matched Red Flanks & Roof)
+        const sideShape = new THREE.Shape();
+        const xSideEndActual = xBase - 0.45; // Horizontal pullback at z=1.39
+        sideShape.moveTo(0, 0); 
+        sideShape.lineTo(xSideEndActual, 0);
+        sideShape.lineTo(xSideEndActual, 2.55);
+        sideShape.lineTo(0, 2.55);
+        addRoundedRectHole(sideShape, xSideEndActual - 0.35, 1.6, 0.4, 1.0, 0.1); // Driver window
+        
+        const sideGeom = new THREE.ExtrudeGeometry(sideShape, { depth: 0.02, bevelEnabled: false });
+        applyTumblehome(sideGeom);
+        
+        const cabSideR = new THREE.Mesh(sideGeom, mats.red.clone());
+        cabSideR.material.side = THREE.DoubleSide;
+        cabSideR.position.z = W/2; // 1.41
+        cabSideR.userData.isShellWall = true;
+        group.add(cabSideR);
+
+        const sideGeomL = new THREE.ExtrudeGeometry(sideShape, { depth: 0.02, bevelEnabled: false });
+        applyTumblehome(sideGeomL, true);
+
+        const cabSideL = new THREE.Mesh(sideGeomL, mats.red.clone());
+        cabSideL.material.side = THREE.DoubleSide;
+        cabSideL.position.z = -W/2 - 0.02; // -1.43
+        cabSideL.userData.isShellWall = true;
+        group.add(cabSideL);
+
+        const cabSkirtGeomR = new THREE.PlaneGeometry(xSideEndActual, 0.2, 8, 2);
+        cabSkirtGeomR.translate(xSideEndActual/2, 0.1, 0);
+        applyTumblehome(cabSkirtGeomR);
+        const cabSkirtR = new THREE.Mesh(cabSkirtGeomR, mats.blueLine);
+        cabSkirtR.position.z = W/2 + 0.021;
+        group.add(cabSkirtR);
+
+        const cabSkirtGeomL = new THREE.PlaneGeometry(xSideEndActual, 0.2, 8, 2);
+        cabSkirtGeomL.translate(xSideEndActual/2, 0.1, 0);
+        applyTumblehome(cabSkirtGeomL, true);
+        const cabSkirtL = new THREE.Mesh(cabSkirtGeomL, mats.blueLine);
+        cabSkirtL.position.z = -W/2 - 0.021;
+        group.add(cabSkirtL);
+
+        // Inner blue bands for driver cabin
+        const cabSkirtInnerGeomR = new THREE.PlaneGeometry(xSideEndActual, 0.2, 8, 2);
+        cabSkirtInnerGeomR.translate(xSideEndActual/2, 0.1, 0);
+        applyTumblehome(cabSkirtInnerGeomR);
+        const cabSkirtInnerR = new THREE.Mesh(cabSkirtInnerGeomR, mats.blueLine.clone());
+        cabSkirtInnerR.position.z = W/2 - 0.001;
+        cabSkirtInnerR.material.side = THREE.BackSide;
+        group.add(cabSkirtInnerR);
+
+        const cabSkirtInnerGeomL = new THREE.PlaneGeometry(xSideEndActual, 0.2, 8, 2);
+        cabSkirtInnerGeomL.translate(xSideEndActual/2, 0.1, 0);
+        applyTumblehome(cabSkirtInnerGeomL, true);
+        const cabSkirtInnerL = new THREE.Mesh(cabSkirtInnerGeomL, mats.blueLine.clone());
+        cabSkirtInnerL.position.z = -W/2 + 0.001;
+        cabSkirtInnerL.material.side = THREE.FrontSide;
+        group.add(cabSkirtInnerL);
+
+        // Side windows
+        const paneShape = new THREE.Shape();
+        const w = 0.4, h = 1.0, r = 0.1;
+        paneShape.moveTo(-w/2+r, -h/2); paneShape.lineTo(w/2-r, -h/2); paneShape.quadraticCurveTo(w/2, -h/2, w/2, -h/2+r);
+        paneShape.lineTo(w/2, h/2-r); paneShape.quadraticCurveTo(w/2, h/2, w/2-r, h/2);
+        paneShape.lineTo(-w/2+r, h/2); paneShape.quadraticCurveTo(-w/2, h/2, -w/2, h/2-r);
+        paneShape.lineTo(-w/2, -h/2+r); paneShape.quadraticCurveTo(-w/2, -h/2, -w/2+r, -h/2);
+        
+        const sideGlassR = new THREE.Mesh(new THREE.ShapeGeometry(paneShape), mats.cabGlass);
+        sideGlassR.position.set(xSideEndActual - 0.35, 1.6, W/2 + 0.01);
+        group.add(sideGlassR);
+
+        const sideGlassL = new THREE.Mesh(new THREE.ShapeGeometry(paneShape), mats.cabGlass);
+        sideGlassL.position.set(xSideEndActual - 0.35, 1.6, -W/2 - 0.01);
+        group.add(sideGlassL);
+
+        const cabRoofShape = new THREE.Shape();
+        const roofW = W/2 - 0.22; // 1.19
+        cabRoofShape.moveTo(-roofW, 0);
+        cabRoofShape.quadraticCurveTo(0, 0.66, roofW, 0);
+        cabRoofShape.lineTo(roofW, -0.05);
+        cabRoofShape.lineTo(-roofW, -0.05);
+
+        const cabRoofGeom = new THREE.ExtrudeGeometry(cabRoofShape, { depth: xBase - 0.35, bevelEnabled: false, curveSegments: 12, steps: 10 });
+        cabRoofGeom.translate(0, 0, -(xBase - 0.35)/2);
+        cabRoofGeom.rotateY(Math.PI/2);
+        cabRoofGeom.translate((xBase - 0.35)/2, 2.55, 0);
+        
+        if (cabRoofGeom.attributes.position) {
+            const pos = cabRoofGeom.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                let x = pos.getX(i);
+                let y = pos.getY(i);
+                let z = pos.getZ(i);
+                
+                if (x > xBase - 1.0) {
+                    let factor = (x - (xBase - 1.0)) / 1.0; // 0 to 1
+                    let pullback = 0;
+                    
+                    // Vertical Curve into Roof
+                    if (y > 2.55) {
+                        pullback += Math.pow(y - 2.55, 2) * 10.0;
+                    }
+                    
+                    // Horizontal wrap-around pullback
+                    let absZ = Math.abs(z);
+                    if (absZ > 0.6) {
+                        pullback += Math.pow(absZ - 0.6, 2) * 0.7;
+                        // Dramatic corner curve into roof
+                        if (y > 2.45) {
+                            pullback += Math.pow(y - 2.45, 2) * Math.pow(absZ - 0.6, 2) * 15.0;
+                        }
+                    }
+                    
+                    x -= pullback * factor;
+                    pos.setX(i, x);
+                }
+            }
+            cabRoofGeom.computeVertexNormals();
+        }
+        
+        const cabRoof = new THREE.Mesh(cabRoofGeom, mats.roof);
+        cabRoof.userData.isShellWall = true;
+        group.add(cabRoof);
+
+        const redRoofGeom = new THREE.ExtrudeGeometry(cabRoofShape, { depth: 0.38, bevelEnabled: false, curveSegments: 12, steps: 5 });
+        redRoofGeom.translate(0, 0, -0.38/2);
+        redRoofGeom.rotateY(Math.PI/2);
+        redRoofGeom.translate(xBase - 0.35 + 0.38/2, 2.55, 0);
+        
+        if (redRoofGeom.attributes.position) {
+            const pos = redRoofGeom.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                let x = pos.getX(i);
+                let y = pos.getY(i);
+                let z = pos.getZ(i);
+                
+                let factor = (x - (xBase - 0.35)) / 0.38;
+                if (factor > 0) {
+                    let targetZScale = 1.21 / 1.19;
+                    let currentZScale = 1.0 + (targetZScale - 1.0) * factor;
+                    z *= currentZScale;
+                    pos.setZ(i, z);
+
+                    let pullback = 0;
+                    if (y > 2.55) {
+                        pullback += Math.pow(y - 2.55, 2) * 10.0;
+                    }
+                    let absZ = Math.abs(z);
+                    if (absZ > 0.6) {
+                        pullback += Math.pow(absZ - 0.6, 2) * 0.7;
+                        if (y > 2.45) {
+                            pullback += Math.pow(y - 2.45, 2) * Math.pow(absZ - 0.6, 2) * 15.0;
+                        }
+                    }
+                    x -= pullback * factor;
+                    pos.setX(i, x);
+                    
+                    if (y > 2.3) {
+                        let yFalloff = Math.pow(absZ / (CAR_WIDTH/2), 2) * 0.08;
+                        y -= yFalloff * factor;
+                        pos.setY(i, y);
+                    }
+                }
+            }
+            redRoofGeom.computeVertexNormals();
+        }
+        
+        const redRoof = new THREE.Mesh(redRoofGeom, mats.red.clone());
+        redRoof.userData.isShellWall = true;
+        group.add(redRoof);
+
+        // Dark Interior Void (Removed as requested)
+        // const intCab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.5, 2.6), new THREE.MeshBasicMaterial({color: 0x050505}));
+        // intCab.position.set(xBase - 0.85, 1.25, 0);
+        // group.add(intCab);
+
+        // 2. Conformal Boolean Front Architecture
+        
+        // A. Red Fascia (Primary Wrap)
+        const redFront = new THREE.Shape();
+        redFront.moveTo(-1.43, 0); 
+        redFront.lineTo(1.43, 0);
+        redFront.lineTo(1.43, 2.55);
+        redFront.quadraticCurveTo(0, 2.55 + 0.66, -1.43, 2.55);
+        redFront.lineTo(-1.43, 0);
+        
+        const leftMaskShape = (path) => {
+            path.moveTo(0.35, 2.3);
+            for(let y=2.3; y>0.55; y-=0.1) path.lineTo(0.35, y);
+            path.lineTo(0.35, 0.55);
+            path.quadraticCurveTo(0.35, 0.45, 0.45, 0.45);
+            path.lineTo(0.8, 0.45);
+            path.quadraticCurveTo(1.3, 0.45, 1.3, 0.95);
+            for(let y=0.95; y<2.0; y+=0.1) path.lineTo(1.3, y);
+            path.lineTo(1.3, 2.0);
+            path.quadraticCurveTo(1.3, 2.3, 0.8, 2.3);
+            for(let x=0.8; x>0.35; x-=0.1) path.lineTo(x, 2.3);
+            path.lineTo(0.35, 2.3);
+        };
+
+        const leftMaskHoleShape = (path) => {
+            path.moveTo(0.35, 2.3);
+            for(let x=0.35; x<0.8; x+=0.1) path.lineTo(x, 2.3);
+            path.lineTo(0.8, 2.3);
+            path.quadraticCurveTo(1.3, 2.3, 1.3, 2.0);
+            for(let y=2.0; y>0.95; y-=0.1) path.lineTo(1.3, y);
+            path.lineTo(1.3, 0.95);
+            path.quadraticCurveTo(1.3, 0.45, 0.8, 0.45);
+            path.lineTo(0.45, 0.45);
+            path.quadraticCurveTo(0.35, 0.45, 0.35, 0.55);
+            for(let y=0.55; y<2.3; y+=0.1) path.lineTo(0.35, y);
+            path.lineTo(0.35, 2.3);
+        };
+
+        const rightMaskShape = (path) => {
+            path.moveTo(-0.35, 2.3);
+            for(let x=-0.35; x>-0.8; x-=0.1) path.lineTo(x, 2.3);
+            path.lineTo(-0.8, 2.3);
+            path.quadraticCurveTo(-1.3, 2.3, -1.3, 2.0);
+            for(let y=2.0; y>0.95; y-=0.1) path.lineTo(-1.3, y);
+            path.lineTo(-1.3, 0.95);
+            path.quadraticCurveTo(-1.3, 0.45, -0.8, 0.45);
+            path.lineTo(-0.45, 0.45);
+            path.quadraticCurveTo(-0.35, 0.45, -0.35, 0.55);
+            for(let y=0.55; y<2.3; y+=0.1) path.lineTo(-0.35, y);
+            path.lineTo(-0.35, 2.3);
+        };
+
+        const rightMaskHoleShape = (path) => {
+            path.moveTo(-0.35, 2.3);
+            for(let y=2.3; y>0.55; y-=0.1) path.lineTo(-0.35, y);
+            path.lineTo(-0.35, 0.55);
+            path.quadraticCurveTo(-0.35, 0.45, -0.45, 0.45);
+            path.lineTo(-0.8, 0.45);
+            path.quadraticCurveTo(-1.3, 0.45, -1.3, 0.95);
+            for(let y=0.95; y<2.0; y+=0.1) path.lineTo(-1.3, y);
+            path.lineTo(-1.3, 2.0);
+            path.quadraticCurveTo(-1.3, 2.3, -0.8, 2.3);
+            for(let x=-0.8; x>-0.35; x-=0.1) path.lineTo(x, 2.3);
+            path.lineTo(-0.35, 2.3);
+        };
+
+        const leftMaskHole = new THREE.Path(); leftMaskHoleShape(leftMaskHole);
+        redFront.holes.push(leftMaskHole);
+
+        const rightMaskHole = new THREE.Path(); rightMaskHoleShape(rightMaskHole);
+        redFront.holes.push(rightMaskHole);
+
+        const doorHole = new THREE.Path();
+        doorHole.moveTo(-0.35, 0.0);
+        for(let y=0.0; y<2.5; y+=0.1) doorHole.lineTo(-0.35, y);
+        doorHole.lineTo(-0.35, 2.5);
+        for(let x=-0.35; x<0.35; x+=0.1) doorHole.lineTo(x, 2.5);
+        doorHole.lineTo(0.35, 2.5);
+        for(let y=2.5; y>0.0; y-=0.1) doorHole.lineTo(0.35, y);
+        doorHole.lineTo(0.35, 0.0);
+        for(let x=0.35; x>-0.35; x-=0.1) doorHole.lineTo(x, 0.0);
+        doorHole.lineTo(-0.35, 0.0);
+        redFront.holes.push(doorHole);
+
+        group.add(createConformedShape(redFront, xBase, mats.red, 0.025));
+
+
+
+        const leftWindowHoleShape = (path) => {
+            path.moveTo(0.45, 2.2);
+            for(let x=0.45; x<0.85; x+=0.1) path.lineTo(x, 2.2);
+            path.lineTo(0.85, 2.2);
+            path.quadraticCurveTo(1.2, 2.2, 1.2, 1.9);
+            for(let y=1.9; y>1.05; y-=0.1) path.lineTo(1.2, y);
+            path.lineTo(1.2, 1.05);
+            path.quadraticCurveTo(1.2, 0.95, 1.1, 0.95);
+            for(let x=1.1; x>0.55; x-=0.1) path.lineTo(x, 0.95);
+            path.lineTo(0.55, 0.95);
+            path.quadraticCurveTo(0.45, 0.95, 0.45, 1.05);
+            for(let y=1.05; y<2.2; y+=0.1) path.lineTo(0.45, y);
+            path.lineTo(0.45, 2.2);
+        };
+
+        const rightWindowHoleShape = (path) => {
+            path.moveTo(-0.45, 2.2);
+            for(let y=2.2; y>1.05; y-=0.1) path.lineTo(-0.45, y);
+            path.lineTo(-0.45, 1.05);
+            path.quadraticCurveTo(-0.45, 0.95, -0.55, 0.95);
+            for(let x=-0.55; x>-1.1; x-=0.1) path.lineTo(x, 0.95);
+            path.lineTo(-1.1, 0.95);
+            path.quadraticCurveTo(-1.2, 0.95, -1.2, 1.05);
+            for(let y=1.05; y<1.9; y+=0.1) path.lineTo(-1.2, y);
+            path.lineTo(-1.2, 1.9);
+            path.quadraticCurveTo(-1.2, 2.2, -0.85, 2.2);
+            for(let x=-0.85; x<-0.45; x+=0.1) path.lineTo(x, 2.2);
+            path.lineTo(-0.45, 2.2);
+        };
+
+        // B. Black Window Masks
+        const leftMask = new THREE.Shape(); leftMaskShape(leftMask);
+        const leftHole = new THREE.Path(); leftWindowHoleShape(leftHole);
+        leftMask.holes.push(leftHole);
+        group.add(createConformedShape(leftMask, xBase, mats.frame, 0.02));
+
+        const rightMask = new THREE.Shape(); rightMaskShape(rightMask);
+        const rightHole = new THREE.Path(); rightWindowHoleShape(rightHole);
+        rightMask.holes.push(rightHole);
+        group.add(createConformedShape(rightMask, xBase, mats.frame, 0.02));
+
+        // C. Central Emergency Door
+        const eDoor = new THREE.Shape();
+        eDoor.moveTo(-0.34, 0.0);
+        for(let x=-0.34; x<0.34; x+=0.1) eDoor.lineTo(x, 0.0);
+        eDoor.lineTo(0.34, 0.0);
+        for(let y=0.0; y<2.5; y+=0.1) eDoor.lineTo(0.34, y);
+        eDoor.lineTo(0.34, 2.5);
+        for(let x=0.34; x>-0.34; x-=0.1) eDoor.lineTo(x, 2.5);
+        eDoor.lineTo(-0.34, 2.5);
+        for(let y=2.5; y>0.0; y-=0.1) eDoor.lineTo(-0.34, y);
+        eDoor.lineTo(-0.34, 0.0);
+        addRoundedRectHole(eDoor, 0, 1.45, 0.5, 1.2, 0.05); // Door Win
+        group.add(createConformedShape(eDoor, xBase, mats.red, 0.026));
+
+        // D. Structural Glass Panes
+        group.add(createConformedMesh(new THREE.PlaneGeometry(0.9, 1.45, 8, 8), xBase, mats.cabGlass, 0.825, 1.575, 0.01));
+        group.add(createConformedMesh(new THREE.PlaneGeometry(0.9, 1.45, 8, 8), xBase, mats.cabGlass, -0.825, 1.575, 0.01));
+        group.add(createConformedMesh(new THREE.PlaneGeometry(0.55, 1.2, 4, 4), xBase, mats.cabGlass, 0, 1.45, 0.012));
+
+        // 3. Telemetry Plates & Handles
+        // Destination Sign
+        const destCanvas = document.createElement('canvas');
+        destCanvas.width = 512;
+        destCanvas.height = 128;
+        const destCtx = destCanvas.getContext('2d');
+        destCtx.fillStyle = '#000000';
+        destCtx.fillRect(0, 0, 512, 128);
+        destCtx.fillStyle = '#ffaa00';
+        destCtx.font = 'bold 72px sans-serif';
+        destCtx.textAlign = 'center';
+        destCtx.textBaseline = 'middle';
+        destCtx.translate(512, 0);
+        destCtx.scale(-1, 1);
+        destCtx.fillText('UXBRIDGE', 256, 64);
+        const destTexture = new THREE.CanvasTexture(destCanvas);
+        destTexture.needsUpdate = true;
+        const destMat = new THREE.MeshBasicMaterial({ map: destTexture, side: THREE.DoubleSide });
+        
+        // Train Number Sign
+        const numCanvas = document.createElement('canvas');
+        numCanvas.width = 128;
+        numCanvas.height = 64;
+        const numCtx = numCanvas.getContext('2d');
+        numCtx.fillStyle = '#000000';
+        numCtx.fillRect(0, 0, 128, 64);
+        numCtx.fillStyle = '#ffaa00';
+        numCtx.font = 'bold 48px sans-serif';
+        numCtx.textAlign = 'center';
+        numCtx.textBaseline = 'middle';
+        numCtx.translate(128, 0);
+        numCtx.scale(-1, 1);
+        numCtx.fillText('404', 64, 32);
+        const numTexture = new THREE.CanvasTexture(numCanvas);
+        numTexture.needsUpdate = true;
+        const numMat = new THREE.MeshBasicMaterial({ map: numTexture, side: THREE.DoubleSide });
+
+        group.add(createConformedMesh(new THREE.PlaneGeometry(0.45, 0.15, 16, 8), xBase, destMat, 0, 2.3, 0.035));
+        group.add(createConformedMesh(new THREE.PlaneGeometry(0.2, 0.08, 8, 4), xBase, numMat, 0, 2.42, 0.035));
+
+        const createConformedHandrail = (z, yStart, yEnd) => {
+            const points = [];
+            for(let y=yStart; y<=yEnd; y+=0.05) {
+                let p = getConformedData(z, y, xBase);
+                p.x += 0.04; 
+                points.push(p);
+            }
+            const curve = new THREE.CatmullRomCurve3(points);
+            const tubeGeom = new THREE.TubeGeometry(curve, 20, 0.015, 8, false);
+            const hr = new THREE.Mesh(tubeGeom, mats.frame);
+            group.add(hr);
+        };
+        createConformedHandrail(0.25, 1.15, 1.95);
+        createConformedHandrail(-0.25, 1.15, 1.95);
+
+        // 4. Precision Light Clusters
+        function placeExtLamp(z, y, radius, colorHex, isHeadlight, isTailLight, isSpot, xPull = 0) {
+            const mat = new THREE.MeshStandardMaterial({ 
+                color: colorHex, 
+                emissive: colorHex, 
+                emissiveIntensity: 0,
+                roughness: 0.2,
+                metalness: 0.8
+            });
+            
+            let p0 = getConformedData(z, y, xBase);
+            p0.x += xPull;
+            let pY = getConformedData(z, y + 0.05, xBase);
+            pY.x += xPull;
+            let pZ = getConformedData(z + 0.05, y, xBase);
+            pZ.x += xPull;
+            
+            let vY = new THREE.Vector3().subVectors(pY, p0);
+            let vZ = new THREE.Vector3().subVectors(pZ, p0);
+            let normal = new THREE.Vector3().crossVectors(vY, vZ).normalize();
+
+            const housing = new THREE.Mesh(new THREE.CylinderGeometry(radius + 0.01, radius + 0.01, 0.03, 16), mats.frame);
+            housing.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+            housing.position.copy(p0).addScaledVector(normal, 0.015);
+            group.add(housing);
+
+            const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.04, 16), mat);
+            mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+            mesh.position.copy(p0).addScaledVector(normal, 0.02); 
+            group.add(mesh);
+
+            mesh.userData = {
+                isHeadlight: isHeadlight,
+                isTailLight: isTailLight,
+                isActiveForward: isActiveForward,
+                defaultIntensity: 1.0
+            };
+            externalLights.push(mesh);
+
+            if (isSpot) {
+                const pl = new THREE.SpotLight(colorHex, 0.0, 80, 0.4, 0.5, 1);
+                pl.position.copy(p0).addScaledVector(normal, 0.1);
+                pl.target.position.copy(p0).addScaledVector(normal, 10);
+                group.add(pl);
+                group.add(pl.target);
+                pl.userData = {
+                    isHeadlight: isHeadlight,
+                    isTailLight: isTailLight,
+                    isActiveForward: isActiveForward,
+                    defaultIntensity: 4.0
+                };
+                externalLights.push(pl);
+            }
+        }
+
+        // Lower clusters (on red fascia)
+        placeExtLamp(0.9, 0.65, 0.07, 0xffffee, true, false, true, 0.02); // Outer white
+        placeExtLamp(-0.9, 0.65, 0.07, 0xffffee, true, false, true, 0.02); // Outer white
+        placeExtLamp(0.65, 0.615, 0.035, 0xff0000, false, true, false, 0.02); // Inner red
+        placeExtLamp(-0.65, 0.615, 0.035, 0xff0000, false, true, false, 0.02); // Inner red
+
+        // Fog lights
+        placeExtLamp(0.45, 0.2, 0.04, 0xffffee, true, false, false, 0.035);
+        placeExtLamp(-0.45, 0.2, 0.04, 0xffffee, true, false, false, 0.035);
+
+        // 5. Exterior Undercarriage (Skirt & Coupler)
+        const frontSkirtShape = new THREE.Shape();
+        frontSkirtShape.moveTo(-1.41, -0.6); frontSkirtShape.lineTo(1.41, -0.6);
+        frontSkirtShape.lineTo(1.41, 0); frontSkirtShape.lineTo(-1.41, 0);
+        
+        const couplerCutout = new THREE.Path();
+        couplerCutout.moveTo(-0.4, -0.6); couplerCutout.lineTo(0.4, -0.6);
+        couplerCutout.lineTo(0.4, -0.1); couplerCutout.lineTo(-0.4, -0.1);
+        frontSkirtShape.holes.push(couplerCutout);
+
+        const frontSkirtGeom = new THREE.ExtrudeGeometry(frontSkirtShape, { depth: 0.05, bevelEnabled: false });
+        group.add(createConformedMesh(frontSkirtGeom, xBase, mats.frame, 0, 0, 0.02));
+
+        // Anti-climbers
+        for (let i = -1.2; i <= 1.2; i += 0.2) {
+            if (Math.abs(i) < 0.5) continue; // Skip coupler area
+            const rib = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.2, 0.05), mats.frame);
+            const cData = getConformedData(i, -0.1, xBase);
+            rib.position.set(cData.x + 0.05, -0.1, cData.z);
+            group.add(rib);
+        }
+
+        const sideSkirtLen = xBase - 0.35;
+        const sideSkirtGeom = new THREE.BoxGeometry(sideSkirtLen, 0.6, 0.05);
+        const sideSkirtR = new THREE.Mesh(sideSkirtGeom, mats.frame);
+        sideSkirtR.position.set(sideSkirtLen/2, -0.3, W/2 - 0.12 - 0.025);
+        group.add(sideSkirtR);
+        
+        const sideSkirtL = new THREE.Mesh(sideSkirtGeom, mats.frame);
+        sideSkirtL.position.set(sideSkirtLen/2, -0.3, -W/2 + 0.12 + 0.025);
+        group.add(sideSkirtL);
+
+        const couplerBase = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.25, 0.4), mats.frame);
+        couplerBase.position.set(xBase + 0.1, -0.25, 0);
+        group.add(couplerBase);
+        
+        const couplerHook = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.15).rotateZ(Math.PI/2), mats.frame);
+        couplerHook.position.set(xBase + 0.3, -0.25, 0);
+        group.add(couplerHook);
+
+        // 6. Cockpit Internal Volumes
+        const desk = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.95, 1.2), mats.frame);
+        desk.position.set(cabLen - 0.8, 0.475, 0);
+        group.add(desk);
+
+        const dSeat = createTipUpSeat(1.5);
+        dSeat.position.set(xBase - 1.0, 0.4, 0);
+        dSeat.rotation.y = 0;
+        group.add(dSeat);
+
+        // Computers and stuff
+        const screen1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.4), new THREE.MeshBasicMaterial({color: 0x111111}));
+        screen1.position.set(cabLen - 0.6, 1.1, -0.3);
+        screen1.rotation.y = Math.PI / 6;
+        group.add(screen1);
+
+        const screen2 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.3, 0.4), new THREE.MeshBasicMaterial({color: 0x111111}));
+        screen2.position.set(cabLen - 0.6, 1.1, 0.3);
+        screen2.rotation.y = -Math.PI / 6;
+        group.add(screen2);
+
+        const keyboard = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.02, 0.5), new THREE.MeshBasicMaterial({color: 0x222222}));
+        keyboard.position.set(cabLen - 0.9, 0.96, 0);
+        group.add(keyboard);
+
+        const obsSeat = createTipUpSeat(1);
+        obsSeat.position.set(cabLen - 1.9, 0.4, 0.8);
+        obsSeat.rotation.y = 0;
+        group.add(obsSeat);
+
+        // Driver Cabin Light
+        const cabLight = new THREE.PointLight(0xffffee, 0.0, 4.0, 1.5);
+        cabLight.position.set(cabLen - 1.0, 2.2, 0);
+        group.add(cabLight);
+        cabLights.push(cabLight);
+
+        // Aerodynamic Fairing (Secondary Roof Line / HVAC)
+        // (Removed cabSpine as it clips with the new roof curve)
+
+        return group;
+    }
+
+    // --- Train Unit Builder ---
+
+    function createS8Unit(configType, isDM, isFront, isActiveForward) {
+        const unit = new THREE.Group();
+        const W = CAR_WIDTH;
+        const saloonLength = M_LENGTH; // Core body length is consistent across topologies
+        
+        // --- 1. FLOOR ---
+        const floorShape = new THREE.Shape();
+        floorShape.moveTo(-W/2, 0); floorShape.lineTo(W/2, 0); floorShape.lineTo(W/2 - 0.1, -0.3); floorShape.lineTo(-W/2 + 0.1, -0.3);
+        const floorGeom = new THREE.ExtrudeGeometry(floorShape, { depth: saloonLength, bevelEnabled: false });
+        floorGeom.translate(0, 0, -saloonLength/2); floorGeom.rotateY(Math.PI/2);
+        const floor = new THREE.Mesh(floorGeom, mats.floor);
+        unit.add(floor);
+
+        // --- 2. SALOON INTERIOR ---
+        const interior = new THREE.Group();
+        const zR = W/2 - 0.45, zL = -W/2 + 0.45; // Translated inward to avoid tumblehome clipping
+        const sH = 0.38;
+
+        const doorLocs = [-5.424, 0.0, 5.424];
+        const windows = [
+            {x: -6.8, w: 0.6}, {x: -3.6, w: 1.5}, {x: -1.8, w: 1.2}, 
+            {x: 1.8, w: 1.5}, {x: 3.6, w: 1.5}, {x: 6.8, w: 0.6}
+        ];
+
+        let rPos = [], lPos = [];
+
+        if (configType === 'CONFIG_1') {
+            rPos = [ { t: 'side', n: 2, x: -7.2 }, { t: 'bay', x: -2.8 }, { t: 'side', n: 4, x: 2.1 }, { t: 'tipup', n: 3, x: 3.9 }, { t: 'side', n: 2, x: 7.2 } ];
+            lPos = [ { t: 'side', n: 2, x: -7.2 }, { t: 'side', n: 4, x: -3.5 }, { t: 'tipup', n: 3, x: -1.7 }, { t: 'bay', x: 2.8 }, { t: 'side', n: 2, x: 7.2 } ];
+        } else {
+            rPos = [ { t: 'side', n: 2, x: -7.2 }, { t: 'side', n: 7, x: -2.8 }, { t: 'side', n: 3, x: 1.6 }, { t: 'sep', x: 2.5 }, { t: 'side', n: 4, x: 3.6 }, { t: 'side', n: 2, x: 7.2 } ];
+            lPos = [ { t: 'side', n: 2, x: -7.2 }, { t: 'bay', x: -3.7 }, { t: 'bay', x: -1.9 }, { t: 'side', n: 7, x: 2.8 }, { t: 'side', n: 2, x: 7.2 } ];
+        }
+
+        rPos.forEach(p => {
+            if (p.t === 'side') { const s = createSidewaysSeat(p.n); s.position.set(p.x, sH, zR); s.rotation.y = Math.PI/2; interior.add(s); interior.add(createPole(p.x + (p.n*0.25) + 0.1, zR - 0.25)); }
+            else if (p.t === 'tipup') { const s = createTipUpSeat(p.n); s.position.set(p.x, sH, zR); s.rotation.y = Math.PI/2; interior.add(s); interior.add(createPole(p.x - 0.2, zR - 0.25)); }
+            else if (p.t === 'bay') { const bay = createBayAsset(); bay.position.set(p.x, sH, zR - 0.35); interior.add(bay); }
+            else if (p.t === 'sep') { const sep = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.2, 0.5), mats.separator); sep.position.set(p.x, 0.8, zR); interior.add(sep); }
+        });
+
+        lPos.forEach(p => {
+            if (p.t === 'side') { const s = createSidewaysSeat(p.n); s.position.set(p.x, sH, zL); s.rotation.y = -Math.PI/2; interior.add(s); interior.add(createPole(p.x - (p.n*0.25) - 0.1, zL + 0.25)); }
+            else if (p.t === 'tipup') { const s = createTipUpSeat(p.n); s.position.set(p.x, sH, zL); s.rotation.y = -Math.PI/2; interior.add(s); interior.add(createPole(p.x + 0.2, zL + 0.25)); }
+            else if (p.t === 'bay') { const bay = createBayAsset(); bay.position.set(p.x, sH, zL + 0.35); interior.add(bay); }
+        });
+
+        doorLocs.forEach(dx => {
+            interior.add(createDraughtScreen(dx - 0.82, zR - 0.1)); interior.add(createDraughtScreen(dx + 0.82, zR - 0.1));
+            interior.add(createDraughtScreen(dx - 0.82, zL + 0.1)); interior.add(createDraughtScreen(dx + 0.82, zL + 0.1));
+        });
+
+        const covShapeR = new THREE.Shape();
+        covShapeR.moveTo(0, 0); covShapeR.lineTo(-0.4, 0.4); covShapeR.lineTo(0, 0.4);
+        const covGeomR = new THREE.ExtrudeGeometry(covShapeR, { depth: saloonLength, bevelEnabled: false });
+        covGeomR.translate(0, 0, -saloonLength/2); covGeomR.rotateY(-Math.PI/2);
+        const adBoardR = new THREE.Mesh(covGeomR, mats.adPanel);
+        adBoardR.position.set(0, 2.15, zR + 0.25);
+        interior.add(adBoardR);
+
+        const covShapeL = new THREE.Shape();
+        covShapeL.moveTo(0, 0); covShapeL.lineTo(0.4, 0.4); covShapeL.lineTo(0, 0.4);
+        const covGeomL = new THREE.ExtrudeGeometry(covShapeL, { depth: saloonLength, bevelEnabled: false });
+        covGeomL.translate(0, 0, -saloonLength/2); covGeomL.rotateY(-Math.PI/2);
+        const adBoardL = new THREE.Mesh(covGeomL, mats.adPanel);
+        adBoardL.position.set(0, 2.15, zL - 0.25);
+        interior.add(adBoardL);
+
+        for(let i = -6; i <= 6; i += 6) {
+            const light = new THREE.PointLight(0xffeedd, 0.8, 6); light.position.set(i, 2.45, 0); interior.add(light); interiorLights.push(light);
+            const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.0).rotateZ(Math.PI/2), new THREE.MeshStandardMaterial({ emissive: 0xffffee, emissiveIntensity: 1.0 })); tube.position.set(i, 2.55, 0); interior.add(tube); interiorLights.push(tube);
+        }
+        unit.add(interior);
+
+        // --- 3. SHELL (EXTERIOR & ROOF) ---
+        const shell = new THREE.Group();
+        const wallR = createWallWithHoles(saloonLength, windows, doorLocs); wallR.position.z = W/2 - 0.07; shell.add(wallR);
+        const wallL = createWallWithHoles(saloonLength, windows, doorLocs); 
+        wallL.rotation.y = Math.PI; 
+        wallL.position.z = -W/2 + 0.07; 
+        shell.add(wallL);
+
+        const endWallRear = createCarriageEndWall(W, isDM && !isFront); 
+        endWallRear.position.set(-saloonLength/2, 0, 0); 
+        endWallRear.rotation.y = -Math.PI/2; 
+        shell.add(endWallRear);
+
+        const endWallFront = createCarriageEndWall(W, isDM && isFront); 
+        endWallFront.position.set(saloonLength/2, 0, 0); 
+        endWallFront.rotation.y = Math.PI/2; 
+        shell.add(endWallFront);
+
+        const roofW = W/2 - 0.22;
+        const roofShape = new THREE.Shape();
+        roofShape.moveTo(-roofW, 0); roofShape.quadraticCurveTo(0, 0.66, roofW, 0); roofShape.lineTo(roofW, -0.05); roofShape.lineTo(-roofW, -0.05);
+        const roofGeom = new THREE.ExtrudeGeometry(roofShape, { depth: saloonLength, bevelEnabled: false });
+        roofGeom.translate(0, 0, -saloonLength/2); roofGeom.rotateY(Math.PI/2);
+        const roof = new THREE.Mesh(roofGeom, mats.roof); roof.userData.isShellWall = true; roof.position.y = 2.55; shell.add(roof);
+
+        // Roof-mounted dual HVAC / Resistor Grid Boxes
+        const hvacMat = mats.frame.clone();
+        
+        const hvacW = 0.75;
+        const hvacShape = new THREE.Shape();
+        hvacShape.moveTo(-hvacW, 0.198);
+        hvacShape.quadraticCurveTo(0, 0.462, hvacW, 0.198);
+        hvacShape.lineTo(hvacW, 0.318);
+        hvacShape.quadraticCurveTo(0, 0.582, -hvacW, 0.318);
+        hvacShape.lineTo(-hvacW, 0.198);
+
+        const hvacGeom = new THREE.ExtrudeGeometry(hvacShape, { depth: 1.5, bevelEnabled: false });
+        hvacGeom.translate(0, 0, -0.75);
+        hvacGeom.rotateY(Math.PI/2);
+        
+        const hvac1 = new THREE.Mesh(hvacGeom, hvacMat);
+        hvac1.position.set(-4.0, 2.55, 0);
+        hvac1.userData.isShellWall = true;
+        shell.add(hvac1);
+
+        const hvac2 = new THREE.Mesh(hvacGeom, hvacMat);
+        hvac2.position.set(4.0, 2.55, 0);
+        hvac2.userData.isShellWall = true;
+        shell.add(hvac2);
+
+        unit.shell = shell;
+        unit.add(shell);
+
+        // --- 4. BOGIES & UNDERFRAME ---
+        const underframe = new THREE.Group();
+        const axleY = -0.7; 
+        [-BOGIE_HALF_DIST, BOGIE_HALF_DIST].forEach(bx => {
+            const bogie = createHighFidelityBogie(); bogie.position.set(bx, axleY, 0); underframe.add(bogie);
+        });
+
+        const equip = createUnderframeEquipment(); underframe.add(equip);
+        underframe.position.y = -0.15; 
+        unit.add(underframe);
+
+        // --- 5. CAB MODULE INTEGRATION ---
+        if (isDM) {
+            const cab = createCabModule(isActiveForward);
+            if (isFront) {
+                cab.position.x = saloonLength/2;
+            } else {
+                cab.rotation.y = Math.PI;
+                cab.position.x = -saloonLength/2;
+            }
+            unit.add(cab);
+        }
+
+        return unit;
+    }
+
+    // --- State Execution Logic ---
+
+    function toggleShell() {
+        AppState.shellOpaque = !AppState.shellOpaque;
+        trainGroup.traverse(child => {
+            if (child.userData.isShellWall) {
+                child.material.transparent = !AppState.shellOpaque;
+                child.material.opacity = AppState.shellOpaque ? 1.0 : 0.15;
+                child.material.needsUpdate = true;
+            }
+        });
+        const el = document.getElementById('shellStatus'); el.innerText = AppState.shellOpaque ? 'OPAQUE' : 'TRANSPARENT'; el.className = AppState.shellOpaque ? 'text-green-500 font-mono' : 'text-red-500 font-mono';
+    }
+
+    function toggleDoors() {
+        AppState.doorsOpen = !AppState.doorsOpen;
+        const el = document.getElementById('doorStatus'); el.innerText = AppState.doorsOpen ? 'OPEN' : 'CLOSED'; el.className = AppState.doorsOpen ? 'text-green-500 font-mono' : 'text-gray-400 font-mono';
+    }
+
+    function toggleLights() {
+        AppState.lightsOn = !AppState.lightsOn;
+        updateLightState();
+        const el = document.getElementById('lightStatus'); el.innerText = AppState.lightsOn ? 'ON' : 'OFF'; el.className = AppState.lightsOn ? 'text-green-500 font-mono' : 'text-red-500 font-mono';
+    }
+
+    function toggleInspectionMode() {
+        AppState.inspectionMode = !AppState.inspectionMode;
+        
+        scene.fog.color.setHex(AppState.inspectionMode ? 0x222222 : 0x050505);
+        document.body.style.backgroundColor = AppState.inspectionMode ? '#222' : '#030303';
+        
+        inspectionLights.forEach(l => {
+            if (l.isDirectionalLight) l.intensity = AppState.inspectionMode ? 3.0 : 0.0;
+            if (l.isAmbientLight) l.intensity = AppState.inspectionMode ? 2.5 : 0.0;
+        });
+        const el = document.getElementById('inspectStatus'); el.innerText = AppState.inspectionMode ? 'ON' : 'OFF'; el.className = AppState.inspectionMode ? 'text-green-500 font-mono' : 'text-gray-400 font-mono';
+    }
+
+    function resetCamera() { controls.reset(); camera.position.set(0, 12, 50); }
+    function onResize() { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
+    
+    function animate() { 
+        requestAnimationFrame(animate); 
+        controls.update(); 
+        
+        doorControls.forEach(door => {
+            const tL = AppState.doorsOpen ? door.userData.openL : door.userData.closedL;
+            const tR = AppState.doorsOpen ? door.userData.openR : door.userData.closedR;
+            const diffL = tL - door.userData.left.position.x;
+            const diffR = tR - door.userData.right.position.x;
+
+            door.userData.left.position.x += diffL * 0.03;
+            door.userData.right.position.x += diffR * 0.03;
+
+            if (Math.abs(diffL) > 0.005) {
+                door.userData.ind.material = mats.indicatorOn;
+            } else {
+                door.userData.ind.material = mats.indicatorOff;
+            }
+        });
+
+        if(AppState.torchActive) {
+            torchLight.intensity = 8.0;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(trainGroup.children, true);
+            if(intersects.length > 0) {
+                torchLight.position.copy(camera.position);
+                torchLight.target.position.copy(intersects[0].point);
+                torchLight.target.updateMatrixWorld();
+            }
+        } else {
+            torchLight.intensity = 0.0;
+        }
+
+        renderer.render(scene, camera); 
+    }
+
+    window.onload = init;
+</script>
+</body>
+</html>

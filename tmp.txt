@@ -1,0 +1,131 @@
+306-    shape.lineTo(r, 0);
+307-    shape.absarc(r, r, r, -Math.PI / 2, Math.PI, true);
+308-
+309-    const depth = 0.05;
+310-    let geom = new THREE.ExtrudeGeometry(shape, {
+311-      depth: depth,
+312-      bevelEnabled: false,
+313-      curveSegments: 8,
+314-    });
+315-
+316-    const pos = geom.attributes.position;
+317-    const inwardSign = leftSide ? 1 : -1;
+318-
+319-    for (let i = 0; i < pos.count; i++) {
+320-      const x = pos.getX(i);
+321-      const y = pos.getY(i);
+322-      const z = pos.getZ(i); // depth from 0 to 0.05
+323-
+324-      const try_Y = yBase + (isTop ? -y : y);
+325-      const idx = findIndexForY(try_Y, leftSide);
+326-      const hullX = outerPoints[idx].x;
+327-      const try_X = hullX + inwardSign * z;
+328-      const try_Z = zBase + (isRight ? -x : x);
+329-
+330-      pos.setXYZ(i, try_X, try_Y, try_Z);
+331-    }
+332-
+333-    const numFlips = (isTop ? 1 : 0) + (isRight ? 1 : 0) + (!leftSide ? 1 : 0);
+334-    if (numFlips % 2 !== 0) {
+335-      const idx = geom.getIndex();
+336-      if (idx) {
+337-        for (let i = 0; i < idx.count; i += 3) {
+338-          const a = idx.getX(i);
+339-          const b = idx.getX(i + 1);
+340-          idx.setX(i, b);
+341-          idx.setX(i + 1, a);
+342-        }
+343-      }
+344-    }
+345-
+346:    geom = mergeVertices(geom);
+347-    geom.computeVertexNormals();
+348-    return geom;
+--
+609-      shape.lineTo(-0.4215, 1.28);
+610-    } else {
+611-      shape.moveTo(0.4215, 1.28);
+612-      shape.lineTo(1.18, 1.346);
+613-      shape.quadraticCurveTo(1.2, 1.348, 1.2, 1.36);
+614-      shape.lineTo(1.131, 2.15);
+615-      shape.lineTo(1.081, 2.2);
+616-      shape.quadraticCurveTo(0.85, 2.432, 0.4215, 2.432);
+617-      shape.lineTo(0.4215, 1.28);
+618-    }
+619-    return shape;
+620-  };
+621-
+622-  shellShape.holes.push(createFrontWindow(true) as any);
+623-  shellShape.holes.push(createFrontWindow(false) as any);
+624-
+625-  const cabDoorW = 0.35;
+626-  const cabDoorBot = 0.725;
+627-  const cabDoorTop = 2.48;
+628-
+629-  const dw = new THREE.Path();
+630-  dw.moveTo(-cabDoorW, cabDoorBot);
+631-  dw.lineTo(cabDoorW, cabDoorBot);
+632-  dw.lineTo(cabDoorW, cabDoorTop);
+633-  dw.lineTo(-cabDoorW, cabDoorTop);
+634-  dw.lineTo(-cabDoorW, cabDoorBot);
+635-  shellShape.holes.push(dw);
+636-
+637-  const applySlant = (geom: THREE.BufferGeometry) => {
+638-    if (isCab) return geom;
+639-    const pos = geom.attributes.position;
+640-    if (!pos) return geom;
+641-    for (let i = 0; i < pos.count; i++) {
+642-      let px = pos.getX(i);
+643-      if (Math.abs(px) > cabDoorW) {
+644-        // 5 degrees in radians
+645-        let shift = (Math.abs(px) - cabDoorW) * Math.tan((5 * Math.PI) / 180);
+646-        pos.setZ(i, pos.getZ(i) - shift);
+647-      }
+648-    }
+649:    geom = mergeVertices(geom);
+650-    geom.computeVertexNormals();
+651-    return geom;
+--
+1361-    const tan5 = Math.tan((5 * Math.PI) / 180);
+1362-    const EPSILON = 0.05;
+1363-
+1364-    g.updateMatrixWorld(true);
+1365-
+1366-    g.traverse((c) => {
+1367-      if (c instanceof THREE.Mesh && c.userData.isShellWall) {
+1368-        c.updateMatrix();
+1369-        const geom = c.geometry;
+1370-        if (!geom.attributes.position) return;
+1371-        const pos = geom.attributes.position;
+1372-        const pt = new THREE.Vector3();
+1373-        let modified = false;
+1374-
+1375-        for (let i = 0; i < pos.count; i++) {
+1376-          pt.fromBufferAttribute(pos, i);
+1377-          pt.applyMatrix4(c.matrix); // to car-local
+1378-
+1379-          const atStart = Math.abs(pt.z - startZ) < EPSILON;
+1380-          const atEnd = Math.abs(pt.z - endZ) < EPSILON;
+1381-
+1382-          const shouldSlantStart = atStart && !isFirst;
+1383-          const shouldSlantEnd = atEnd && !isLast;
+1384-
+1385-          if (shouldSlantStart || shouldSlantEnd) {
+1386-            if (Math.abs(pt.x) > cabDoorW) {
+1387-              let shift = (Math.abs(pt.x) - cabDoorW) * tan5;
+1388-              if (shouldSlantStart) pt.z += shift;
+1389-              if (shouldSlantEnd) pt.z -= shift;
+1390-
+1391-              // to mesh-local
+1392-              const localPt = pt
+1393-                .clone()
+1394-                .applyMatrix4(c.matrix.clone().invert());
+1395-              pos.setXYZ(i, localPt.x, localPt.y, localPt.z);
+1396-              modified = true;
+1397-            }
+1398-          }
+1399-        }
+1400-        if (modified) {
+1401:          geom = mergeVertices(geom);
+1402-          geom.computeVertexNormals();
+1403-          c.geometry = geom;
